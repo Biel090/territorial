@@ -150,12 +150,14 @@
   <div id="actions">
     <span id="gamestate"></span>
     <span id="roomcode"></span>
-    <label for="pct">Enviar a l’atac</label>
-    <input id="pct" type="range" min="1" max="100" value="35">
-    <span id="pl">35%</span>
-    <label id="allocation-wrap" style="display:none" for="allocation" title="Reparte la producció entre recursos i tropes">Producció → tropes</label>
-    <input id="allocation" type="range" min="0" max="100" value="50" style="display:none" title="A 100%, tota la producció va a tropes; a 0%, va a recursos">
-    <span id="allocation-label" style="display:none">50% tropes</span>
+    <span id="pct-wrap">
+      <label for="pct">Enviar a l’atac</label>
+      <input id="pct" type="range" min="1" max="100" value="35">
+      <span id="pl">35%</span>
+    </span>
+    <label id="allocation-wrap" style="display:none" for="allocation" title="Destina habitants a l'exèrcit; la resta treballa i produeix recursos">Població a l’exèrcit</label>
+    <input id="allocation" type="range" min="0" max="100" step="5" value="35" style="display:none" title="A 100%, tots els habitants s'assignen a l'exèrcit; a 0%, tota la població treballa i produeix">
+    <span id="allocation-label" style="display:none">35% exèrcit</span>
     <button id="start" style="display:none">Començar Partida</button>
     <button id="restart" style="display:none">Reiniciar Partida</button>
   </div>
@@ -195,7 +197,11 @@
         }
         else if (m.t === 'reset') { owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0)); structures = Uint8Array.from(atob(m.structures), c => c.charCodeAt(0)); rebuildStructureList(); boats = []; for (let i = 0; i < W * H; i++) paint(i); dirty = true; gameState = 'lobby'; winner = 0; allies.clear(); updateControls(); }
         else if (m.t === 'd') { for (let k = 0; k < m.c.length; k += 2) { owner[m.c[k]] = m.c[k + 1]; paint(m.c[k]); } dirty = true; }
-        else if (m.t === 'building') { structures[m.i] = m.type; structureList.push([m.i, m.type]); }
+        else if (m.t === 'building') {
+          structures[m.i] = m.type;
+          structureList = structureList.filter(([i]) => i !== m.i);
+          if (m.type) structureList.push([m.i, m.type]);
+        }
         else if (m.t === 'b') boats = m.b;
         else if (m.t === 's') { stats(m.p); gameState = m.state; host = m.host; winner = m.winner; gameMode = m.mode; allies = new Set(m.allies.map(x => x.slice().sort((a, b) => a - b).join(':'))); updateControls(); }
         else if (m.t === 'pactRequest' && confirm(`${m.name} et proposa un pacte. Vols acceptar-lo?`)) send({ t: 'pactReply', from: m.from, accept: true });
@@ -210,6 +216,7 @@
     function updateControls() {
       $('start').style.display = host === me && gameState === 'lobby' ? 'inline-block' : 'none';
       $('restart').style.display = host === me && gameState === 'over' ? 'inline-block' : 'none';
+      $('pct-wrap').style.display = gameMode === 'economic' ? 'none' : 'inline';
       $('allocation-wrap').style.display = gameMode === 'economic' ? 'inline' : 'none';
       $('allocation').style.display = gameMode === 'economic' ? 'inline-block' : 'none';
       $('allocation-label').style.display = gameMode === 'economic' ? 'inline' : 'none';
@@ -219,14 +226,19 @@
     function stats(p) {
       pm = {}; p.forEach(x => pm[x[0]] = x); const q = pm[me];
       $('top').textContent = q && q[4] ? gameMode === 'economic'
-        ? `Tropes: ${q[3]} · Recursos: ${q[6]} · Ciutats: ${q[8]} · Fàbriques: ${q[9]} · Terra: ${(q[2] / land * 100).toFixed(1)}%`
+        ? `Exèrcit: ${q[3]} · Habitants: ${q[10]} · Treballadors: ${q[12]} · Recursos: ${q[6]} · Ciutats: ${q[8]} · Fàbriques: ${q[9]} · Eficàcia: ×${q[11].toFixed(2)}`
         : `Tropes: ${q[3]} · Interès: ${(q[5] * 100).toFixed(1)}% · Terra: ${(q[2] / land * 100).toFixed(1)}%`
         : 'Encara no has aparegut';
       if (q && gameMode === 'economic') {
-        $('allocation').value = q[7];
-        $('allocation-label').textContent = `${q[7]}% tropes`;
+        const allocation = document.activeElement === $('allocation') ? $('allocation').value : q[7];
+        $('allocation').value = allocation;
+        $('allocation-label').textContent = `${allocation}% exèrcit`;
       }
-      $('hint').textContent = q && q[4] ? 'Esq: atacar · Dret: menú · roda: zoom · arrossega: moure' : 'Fes clic esquerre a terra lliure, lluny d\'altres, per aparèixer';
+      $('hint').textContent = q && q[4]
+        ? gameMode === 'economic'
+          ? 'Ataca amb l’exèrcit assignat · Dret: construir · 1 ciutat cada 1.000 habitants · les fàbriques milloren l’eficàcia'
+          : 'Esq: atacar · Dret: menú · roda: zoom · arrossega: moure'
+        : 'Fes clic esquerre a terra lliure, lluny d\'altres, per aparèixer';
       const R = $('rank'); R.textContent = '';
       const row = (a) => { const d = document.createElement('div'); a.forEach((t, i) => { const s = document.createElement('span'); if (i === 0) { const c = color(t, 0); s.style.cssText = `background:rgb(${c});height:10px;margin-top:3px`; } else s.textContent = t; d.appendChild(s); }); R.appendChild(d); return d; };
       row([0, 'Jugador', 'Tropes', 'Int.', 'Terra']).style.opacity = .6;
@@ -235,11 +247,17 @@
     $('start').onclick = () => send({ t: 'start' });
     $('restart').onclick = () => send({ t: 'restart' });
     $('pct').oninput = () => $('pl').textContent = $('pct').value + '%';
-    $('allocation').oninput = () => $('allocation-label').textContent = `${$('allocation').value}% tropes`;
+    $('allocation').oninput = () => $('allocation-label').textContent = `${$('allocation').value}% exèrcit`;
     $('allocation').onchange = () => send({ t: 'allocate', value: $('allocation').value });
     const tile = e => [Math.floor((e.clientX - ox) / zoom), Math.floor((e.clientY - oy) / zoom)];
     const send = o => ws.send(JSON.stringify(o)), pct = () => $('pct').value / 100;
-    function infoLine(id) { const p = pm[id]; return p ? `${p[1]} — Tropes ${p[3]} · Int. ${(p[5] * 100).toFixed(1)}% · Terra ${(p[2] / land * 100).toFixed(1)}%` : ''; }
+    function infoLine(id) {
+      const p = pm[id];
+      return p ? gameMode === 'economic'
+        ? `${p[1]} — Exèrcit ${p[3]} · Habitants ${p[10]} · Eficàcia ×${p[11].toFixed(2)}`
+        : `${p[1]} — Tropes ${p[3]} · Int. ${(p[5] * 100).toFixed(1)}% · Terra ${(p[2] / land * 100).toFixed(1)}%`
+        : '';
+    }
     function menu(e, x, y) {
       const cm = $('cm'); cm.textContent = '';
       const o = x >= 0 && y >= 0 && x < W && y < H ? owner[y * W + x] : 255;
@@ -249,20 +267,22 @@
         const isAlly = o > NB && allies.has([me, o].sort((a, b) => a - b).join(':'));
         if (gameMode === 'economic' && gameState === 'playing' && o === me && !structures[y * W + x]) {
           const q = pm[me];
-          if (q[6] >= 60) add('Construir ciutat (60 recursos)', () => send({ t: 'build', i: y * W + x, building: 'city' }));
-          if (q[8] > 0 && q[6] >= 120) add('Construir fàbrica (120 recursos)', () => send({ t: 'build', i: y * W + x, building: 'factory' }));
+          if (q[6] >= 60 && (!q[8] || q[10] >= q[8] * 1000)) add('Construir ciutat (60 recursos)', () => send({ t: 'build', i: y * W + x, building: 'city' }));
+          if (q[8] > 0 && q[9] < 10 && q[6] >= 120) add('Construir fàbrica (120 recursos)', () => send({ t: 'build', i: y * W + x, building: 'factory' }));
         }
         if (o > NB && o !== me) {
           [10, 25, 50].forEach(p => add(`Donar ${p}% de tropes`, () => send({ t: 'give', to: o, pct: p / 100 })));
           if (gameState === 'playing' && !isAlly) add('Proposar pacte', () => send({ t: 'pact', to: o }));
         }
         if (o !== me && o !== 255) {
-          if (isAlly) add(`Trair pacte i atacar (${$('pct').value}%)`, () => send({ t: 'atk', x, y, pct: pct(), betray: true }));
-          else add(`Atacar (${$('pct').value}%)`, () => send({ t: 'atk', x, y, pct: pct() }));
+          const label = gameMode === 'economic' ? 'Enviar exèrcit' : `Atacar (${$('pct').value}%)`;
+          if (isAlly) add(`Trair pacte i ${label.toLowerCase()}`, () => send({ t: 'atk', x, y, pct: pct(), betray: true }));
+          else add(label, () => send({ t: 'atk', x, y, pct: pct() }));
         }
         if (o !== me) {
-          if (isAlly) add(`Trair pacte i enviar vaixell (${$('pct').value}%)`, () => send({ t: 'boat', x, y, pct: pct(), betray: true }));
-          else add(`Enviar vaixell (${$('pct').value}%)`, () => send({ t: 'boat', x, y, pct: pct() }));
+          const label = gameMode === 'economic' ? 'Enviar exèrcit per mar' : `Enviar vaixell (${$('pct').value}%)`;
+          if (isAlly) add(`Trair pacte i ${label.toLowerCase()}`, () => send({ t: 'boat', x, y, pct: pct(), betray: true }));
+          else add(label, () => send({ t: 'boat', x, y, pct: pct() }));
         }
       } else if (o === 0) add('Aparèixer aquí', () => send({ t: 'spawn', x, y }));
       cm.style.left = Math.min(e.clientX, innerWidth - 190) + 'px'; cm.style.top = Math.min(e.clientY, innerHeight - 150) + 'px'; cm.style.display = 'block';
