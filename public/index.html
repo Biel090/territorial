@@ -1,99 +1,256 @@
-<!DOCTYPE html><html lang="ca"><head><meta charset="utf-8"><title>Territori</title>
-<style>
-html,body{margin:0;height:100%;overflow:hidden;background:#0b1a2b;font:13px system-ui,sans-serif;color:#fff}
-canvas{display:block}
-#menu{position:fixed;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;background:#0b1a2bee}
-input,button{padding:7px 11px;font-size:14px;border-radius:6px;border:0}
-button{background:#3b82f6;color:#fff;cursor:pointer}
-.h{position:fixed;background:#000b;padding:6px 10px;border-radius:6px}
-#top{left:8px;top:8px}
-#rank{right:8px;top:8px;max-height:60vh;overflow:auto;font-size:12px}
-#rank div{display:grid;grid-template-columns:12px 90px 52px 42px 44px;gap:4px;white-space:nowrap}
-#bot{left:50%;bottom:10px;transform:translateX(-50%);text-align:center}
-#cm{position:fixed;display:none;background:#111e;border-radius:8px;padding:6px;min-width:170px;z-index:5}
-#cm b{display:block;margin-bottom:4px}#cm button{display:block;width:100%;margin-top:3px;text-align:left;background:#2a3b55}
-#card{position:fixed;display:none;pointer-events:none;background:#000d;padding:6px 9px;border-radius:6px;z-index:4}
-</style></head><body>
-<canvas id="c"></canvas>
-<div id="menu"><h1>Territori</h1>
-<input id="name" placeholder="El teu nom" maxlength="16">
-<input id="room" placeholder="Codi de sala (buit = crear-ne una)" maxlength="4" style="text-transform:uppercase">
-<button id="go">Entrar</button></div>
-<div class="h" id="top"></div><div class="h" id="rank"></div>
-<div class="h" id="bot"><div id="hint"></div>
-<input id="pct" type="range" min="1" max="100" value="35"> <span id="pl">35%</span><div id="code"></div></div>
-<div id="cm"></div><div id="card"></div>
-<script>
-const $=id=>document.getElementById(id);
-let ws,W,H,NB,me,owner,off,octx,img,land=1,zoom=3,ox=0,oy=0,dirty=false,pm={},boats=[];
-const cv=$('c'),ctx=cv.getContext('2d');
-function resize(){cv.width=innerWidth;cv.height=innerHeight}onresize=resize;resize();
-function hsl(h){const s=.6,l=.5,a=s*Math.min(l,1-l),f=n=>{const k=(n+h/30)%12;return Math.round(255*(l-a*Math.max(-1,Math.min(k-3,9-k,1))))};return[f(0),f(8),f(4)]}
-function color(id,i){if(id===255)return[14,40,72];if(!id)return(i/W|0)<H*.1?[205,215,222]:[62,98,66];if(id<=NB)return hsl(id*47%360);return id===me?[59,130,246]:[34,211,238]}
-function paint(i){const c=color(owner[i],i),d=img.data;d[4*i]=c[0];d[4*i+1]=c[1];d[4*i+2]=c[2];d[4*i+3]=255;}
-$('name').value=localStorage.nom||'';
-$('go').onclick=()=>{
-  localStorage.nom=$('name').value;
-  ws=new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host);
-  ws.onopen=()=>ws.send(JSON.stringify({t:'join',name:$('name').value||'Jugador',room:$('room').value}));
-  ws.onmessage=e=>{const m=JSON.parse(e.data);
-    if(m.t==='err')alert(m.m);
-    else if(m.t==='init'){W=m.w;H=m.h;NB=m.nb;me=m.me;land=m.land;
-      owner=Uint8Array.from(atob(m.owner),c=>c.charCodeAt(0));
-      off=document.createElement('canvas');off.width=W;off.height=H;octx=off.getContext('2d');img=octx.createImageData(W,H);
-      for(let i=0;i<W*H;i++)paint(i);dirty=true;
-      zoom=Math.min(innerWidth/W,innerHeight/H)*.95;ox=(innerWidth-W*zoom)/2;oy=(innerHeight-H*zoom)/2;
-      $('menu').style.display='none';$('code').textContent='Sala: '+m.code+' (passa-li el codi al teu amic)';}
-    else if(m.t==='d'){for(let k=0;k<m.c.length;k+=2){owner[m.c[k]]=m.c[k+1];paint(m.c[k]);}dirty=true;}
-    else if(m.t==='b')boats=m.b;
-    else if(m.t==='s')stats(m.p);};
-};
-const alive=()=>pm[me]&&pm[me][4];
-function stats(p){
-  pm={};p.forEach(x=>pm[x[0]]=x);const q=pm[me];
-  $('top').textContent=q&&q[4]?`Tropes: ${q[3]} · Interès: ${(q[5]*100).toFixed(1)}% · Terra: ${(q[2]/land*100).toFixed(1)}%`:'Encara no has aparegut';
-  $('hint').textContent=q&&q[4]?'Esq: atacar · Dret: menú · roda: zoom · arrossega: moure':'Fes clic esquerre a terra lliure, lluny d\'altres, per aparèixer';
-  const R=$('rank');R.textContent='';
-  const row=(a)=>{const d=document.createElement('div');a.forEach((t,i)=>{const s=document.createElement('span');if(i===0){const c=color(t,0);s.style.cssText=`background:rgb(${c});height:10px;margin-top:3px`;}else s.textContent=t;d.appendChild(s);});R.appendChild(d);return d;};
-  row([0,'Jugador','Tropes','Int.','Terra']).style.opacity=.6;
-  p.filter(x=>x[4]).sort((a,b)=>b[2]-a[2]).forEach(x=>{const d=row([x[0],x[1],x[3],(x[5]*100).toFixed(1)+'%',(x[2]/land*100).toFixed(1)+'%']);if(x[0]===me)d.style.fontWeight='bold';});
-}
-$('pct').oninput=()=>$('pl').textContent=$('pct').value+'%';
-const tile=e=>[Math.floor((e.clientX-ox)/zoom),Math.floor((e.clientY-oy)/zoom)];
-const send=o=>ws.send(JSON.stringify(o)),pct=()=>$('pct').value/100;
-function infoLine(id){const p=pm[id];return p?`${p[1]} — Tropes ${p[3]} · Int. ${(p[5]*100).toFixed(1)}% · Terra ${(p[2]/land*100).toFixed(1)}%`:'';}
-function menu(e,x,y){
-  const cm=$('cm');cm.textContent='';
-  const o=x>=0&&y>=0&&x<W&&y<H?owner[y*W+x]:255;
-  const add=(t,f)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{cm.style.display='none';f();};cm.appendChild(b);};
-  const h=document.createElement('b');h.textContent=o===255?'Mar':o===0?'Terra lliure':o===me?'El teu territori':infoLine(o);cm.appendChild(h);
-  if(alive()){
-    if(o>NB&&o!==me)[10,25,50].forEach(p=>add(`Donar ${p}% de tropes`,()=>send({t:'give',to:o,pct:p/100})));
-    else if(o!==me){if(o!==255)add(`Atacar (${$('pct').value}%)`,()=>send({t:'atk',x,y,pct:pct()}));
-      add(`Enviar vaixell (${$('pct').value}%)`,()=>send({t:'boat',x,y,pct:pct()}));}
-  }else if(o===0)add('Aparèixer aquí',()=>send({t:'spawn',x,y}));
-  cm.style.left=Math.min(e.clientX,innerWidth-190)+'px';cm.style.top=Math.min(e.clientY,innerHeight-150)+'px';cm.style.display='block';
-}
-let drag=null,moved=0;
-cv.onmousedown=e=>{$('cm').style.display='none';drag={x:e.clientX,y:e.clientY};moved=0;};
-onmousemove=e=>{
-  if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;moved+=Math.abs(dx)+Math.abs(dy);ox+=dx;oy+=dy;drag.x=e.clientX;drag.y=e.clientY;}
-  const c=$('card');if(!owner||e.target!==cv||drag){c.style.display='none';return;}
-  const[x,y]=tile(e),o=x>=0&&y>=0&&x<W&&y<H?owner[y*W+x]:255;
-  if(o>0&&o<255&&pm[o]){c.textContent=infoLine(o);c.style.left=e.clientX+14+'px';c.style.top=e.clientY+14+'px';c.style.display='block';}else c.style.display='none';};
-onmouseup=e=>{
-  if(!drag)return;drag=null;if(moved>6||!ws||!owner||e.target!==cv)return;
-  const[x,y]=tile(e);
-  if(e.button===2)menu(e,x,y);
-  else if(e.button===0)send(alive()?{t:'atk',x,y,pct:pct()}:{t:'spawn',x,y});};
-cv.oncontextmenu=e=>e.preventDefault();
-onkeydown=e=>{if(e.key==='Escape')$('cm').style.display='none';};
-cv.onwheel=e=>{const f=e.deltaY<0?1.15:1/1.15,z=Math.min(30,Math.max(1,zoom*f));
-  ox=e.clientX-(e.clientX-ox)*z/zoom;oy=e.clientY-(e.clientY-oy)*z/zoom;zoom=z;};
-(function loop(){
-  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#0b1a2b';ctx.fillRect(0,0,cv.width,cv.height);
-  if(off){if(dirty){octx.putImageData(img,0,0);dirty=false;}
-    ctx.imageSmoothingEnabled=false;ctx.setTransform(zoom,0,0,zoom,ox,oy);ctx.drawImage(off,0,0);
-    for(const b of boats){ctx.fillStyle='#fff';ctx.fillRect(b[0]-1.5,b[1]-1.5,3,3);ctx.fillStyle=`rgb(${color(b[2],0)})`;ctx.fillRect(b[0]-1,b[1]-1,2,2);}}
-  requestAnimationFrame(loop);})();
-</script></body></html>
+<!DOCTYPE html>
+<html lang="ca">
+
+<head>
+  <meta charset="utf-8">
+  <title>Territori</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0b1a2b;
+      font: 13px system-ui, sans-serif;
+      color: #fff
+    }
+
+    canvas {
+      display: block
+    }
+
+    #menu {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+      background: #0b1a2bee
+    }
+
+    input,
+    button {
+      padding: 7px 11px;
+      font-size: 14px;
+      border-radius: 6px;
+      border: 0
+    }
+
+    button {
+      background: #3b82f6;
+      color: #fff;
+      cursor: pointer
+    }
+
+    .h {
+      position: fixed;
+      background: #000b;
+      padding: 6px 10px;
+      border-radius: 6px
+    }
+
+    #top {
+      left: 8px;
+      top: 8px
+    }
+
+    #rank {
+      right: 8px;
+      top: 8px;
+      max-height: 60vh;
+      overflow: auto;
+      font-size: 12px
+    }
+
+    #rank div {
+      display: grid;
+      grid-template-columns: 12px 90px 52px 42px 44px;
+      gap: 4px;
+      white-space: nowrap
+    }
+
+    #bot {
+      left: 50%;
+      bottom: 10px;
+      transform: translateX(-50%);
+      text-align: center;
+      display: none
+    }
+
+    #actions {
+      position: fixed;
+      left: 8px;
+      top: 48px;
+      display: flex;
+      align-items: center;
+      gap: 8px
+    }
+
+    #cm {
+      position: fixed;
+      display: none;
+      background: #111e;
+      border-radius: 8px;
+      padding: 6px;
+      min-width: 170px;
+      z-index: 5
+    }
+
+    #cm b {
+      display: block;
+      margin-bottom: 4px
+    }
+
+    #cm button {
+      display: block;
+      width: 100%;
+      margin-top: 3px;
+      text-align: left;
+      background: #2a3b55
+    }
+
+    #card {
+      position: fixed;
+      display: none;
+      pointer-events: none;
+      background: #000d;
+      padding: 6px 9px;
+      border-radius: 6px;
+      z-index: 4
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="c"></canvas>
+  <div id="menu">
+    <h1>Territori</h1>
+    <input id="name" placeholder="El teu nom" maxlength="16">
+    <input id="room" placeholder="Codi de sala (buit = crear-ne una)" maxlength="4" style="text-transform:uppercase">
+    <button id="go">Entrar</button>
+  </div>
+  <div class="h" id="top"></div>
+  <div class="h" id="rank"></div>
+  <div id="actions">
+    <span id="gamestate"></span>
+    <button id="start" style="display:none">Començar Partida</button>
+    <button id="restart" style="display:none">Reiniciar Partida</button>
+  </div>
+  <div class="h" id="bot">
+    <div id="hint"></div>
+    <input id="pct" type="range" min="1" max="100" value="35"> <span id="pl">35%</span>
+    <div id="code"></div>
+  </div>
+  <div id="cm"></div>
+  <div id="card"></div>
+  <script>
+    const $ = id => document.getElementById(id);
+    let ws, W, H, NB, me, owner, off, octx, img, land = 1, zoom = 3, ox = 0, oy = 0, dirty = false, pm = {}, boats = [], gameState = 'lobby', host = 0, winner = 0, allies = new Set();
+    const cv = $('c'), ctx = cv.getContext('2d');
+    function resize() { cv.width = innerWidth; cv.height = innerHeight } onresize = resize; resize();
+    function hsl(h) { const s = .6, l = .5, a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))) }; return [f(0), f(8), f(4)] }
+    function color(id, i) { if (id === 255) return [14, 40, 72]; if (!id) return (i / W | 0) < H * .1 ? [205, 215, 222] : [62, 98, 66]; if (id <= NB) return hsl(id * 47 % 360); return id === me ? [59, 130, 246] : [34, 211, 238] }
+    function paint(i) { const c = color(owner[i], i), d = img.data; d[4 * i] = c[0]; d[4 * i + 1] = c[1]; d[4 * i + 2] = c[2]; d[4 * i + 3] = 255; }
+    $('name').value = localStorage.nom || '';
+    $('go').onclick = () => {
+      localStorage.nom = $('name').value;
+      ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
+      ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: $('name').value || 'Jugador', room: $('room').value }));
+      ws.onmessage = e => {
+        const m = JSON.parse(e.data);
+        if (m.t === 'err') alert(m.m);
+        else if (m.t === 'init') {
+          W = m.w; H = m.h; NB = m.nb; me = m.me; land = m.land; gameState = m.state; host = m.host;
+          owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0));
+          off = document.createElement('canvas'); off.width = W; off.height = H; octx = off.getContext('2d'); img = octx.createImageData(W, H);
+          for (let i = 0; i < W * H; i++)paint(i); dirty = true;
+          zoom = Math.min(innerWidth / W, innerHeight / H) * .95; ox = (innerWidth - W * zoom) / 2; oy = (innerHeight - H * zoom) / 2;
+          $('menu').style.display = 'none'; $('code').textContent = 'Sala: ' + m.code + ' (passa-li el codi al teu amic)';
+          updateControls();
+        }
+        else if (m.t === 'reset') { owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0)); boats = []; for (let i = 0; i < W * H; i++) paint(i); dirty = true; gameState = 'lobby'; winner = 0; allies.clear(); updateControls(); }
+        else if (m.t === 'd') { for (let k = 0; k < m.c.length; k += 2) { owner[m.c[k]] = m.c[k + 1]; paint(m.c[k]); } dirty = true; }
+        else if (m.t === 'b') boats = m.b;
+        else if (m.t === 's') { stats(m.p); gameState = m.state; host = m.host; winner = m.winner; allies = new Set(m.allies.map(x => x.slice().sort((a, b) => a - b).join(':'))); updateControls(); }
+        else if (m.t === 'pactRequest' && confirm(`${m.name} et proposa un pacte. Vols acceptar-lo?`)) send({ t: 'pactReply', from: m.from, accept: true });
+        else if (m.t === 'pactRequest') send({ t: 'pactReply', from: m.from, accept: false });
+      };
+    };
+    const alive = () => pm[me] && pm[me][4];
+    function updateControls() {
+      $('start').style.display = host === me && gameState === 'lobby' ? 'inline-block' : 'none';
+      $('restart').style.display = host === me && gameState === 'over' ? 'inline-block' : 'none';
+      $('gamestate').textContent = gameState === 'lobby' ? 'Sala d’espera' : gameState === 'playing' ? 'Partida en marxa' : winner ? `${pm[winner]?.[1] || 'Jugador'} ha guanyat` : 'Partida acabada';
+    }
+    function stats(p) {
+      pm = {}; p.forEach(x => pm[x[0]] = x); const q = pm[me];
+      $('top').textContent = q && q[4] ? `Tropes: ${q[3]} · Interès: ${(q[5] * 100).toFixed(1)}% · Terra: ${(q[2] / land * 100).toFixed(1)}%` : 'Encara no has aparegut';
+      $('hint').textContent = q && q[4] ? 'Esq: atacar · Dret: menú · roda: zoom · arrossega: moure' : 'Fes clic esquerre a terra lliure, lluny d\'altres, per aparèixer';
+      const R = $('rank'); R.textContent = '';
+      const row = (a) => { const d = document.createElement('div'); a.forEach((t, i) => { const s = document.createElement('span'); if (i === 0) { const c = color(t, 0); s.style.cssText = `background:rgb(${c});height:10px;margin-top:3px`; } else s.textContent = t; d.appendChild(s); }); R.appendChild(d); return d; };
+      row([0, 'Jugador', 'Tropes', 'Int.', 'Terra']).style.opacity = .6;
+      p.filter(x => x[4]).sort((a, b) => b[2] - a[2]).forEach(x => { const d = row([x[0], x[1], x[3], (x[5] * 100).toFixed(1) + '%', (x[2] / land * 100).toFixed(1) + '%']); if (x[0] === me) d.style.fontWeight = 'bold'; });
+    }
+    $('start').onclick = () => send({ t: 'start' });
+    $('restart').onclick = () => send({ t: 'restart' });
+    $('pct').oninput = () => $('pl').textContent = $('pct').value + '%';
+    const tile = e => [Math.floor((e.clientX - ox) / zoom), Math.floor((e.clientY - oy) / zoom)];
+    const send = o => ws.send(JSON.stringify(o)), pct = () => $('pct').value / 100;
+    function infoLine(id) { const p = pm[id]; return p ? `${p[1]} — Tropes ${p[3]} · Int. ${(p[5] * 100).toFixed(1)}% · Terra ${(p[2] / land * 100).toFixed(1)}%` : ''; }
+    function menu(e, x, y) {
+      const cm = $('cm'); cm.textContent = '';
+      const o = x >= 0 && y >= 0 && x < W && y < H ? owner[y * W + x] : 255;
+      const add = (t, f) => { const b = document.createElement('button'); b.textContent = t; b.onclick = () => { cm.style.display = 'none'; f(); }; cm.appendChild(b); };
+      const h = document.createElement('b'); h.textContent = o === 255 ? 'Mar' : o === 0 ? 'Terra lliure' : o === me ? 'El teu territori' : infoLine(o); cm.appendChild(h);
+      if (alive()) {
+        const isAlly = o > NB && allies.has([me, o].sort((a, b) => a - b).join(':'));
+        if (o > NB && o !== me) {
+          [10, 25, 50].forEach(p => add(`Donar ${p}% de tropes`, () => send({ t: 'give', to: o, pct: p / 100 })));
+          if (gameState === 'playing' && !isAlly) add('Proposar pacte', () => send({ t: 'pact', to: o }));
+        }
+        if (o !== me && o !== 255) {
+          if (isAlly) add(`Trair pacte i atacar (${$('pct').value}%)`, () => send({ t: 'atk', x, y, pct: pct(), betray: true }));
+          else add(`Atacar (${$('pct').value}%)`, () => send({ t: 'atk', x, y, pct: pct() }));
+        }
+        if (o !== me) {
+          if (isAlly) add(`Trair pacte i enviar vaixell (${$('pct').value}%)`, () => send({ t: 'boat', x, y, pct: pct(), betray: true }));
+          else add(`Enviar vaixell (${$('pct').value}%)`, () => send({ t: 'boat', x, y, pct: pct() }));
+        }
+      } else if (o === 0) add('Aparèixer aquí', () => send({ t: 'spawn', x, y }));
+      cm.style.left = Math.min(e.clientX, innerWidth - 190) + 'px'; cm.style.top = Math.min(e.clientY, innerHeight - 150) + 'px'; cm.style.display = 'block';
+    }
+    let drag = null, moved = 0;
+    cv.onmousedown = e => { $('cm').style.display = 'none'; drag = { x: e.clientX, y: e.clientY }; moved = 0; };
+    onmousemove = e => {
+      if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; moved += Math.abs(dx) + Math.abs(dy); ox += dx; oy += dy; drag.x = e.clientX; drag.y = e.clientY; }
+      const c = $('card'); if (!owner || e.target !== cv || drag) { c.style.display = 'none'; return; }
+      const [x, y] = tile(e), o = x >= 0 && y >= 0 && x < W && y < H ? owner[y * W + x] : 255;
+      if (o > 0 && o < 255 && pm[o]) { c.textContent = infoLine(o); c.style.left = e.clientX + 14 + 'px'; c.style.top = e.clientY + 14 + 'px'; c.style.display = 'block'; } else c.style.display = 'none';
+    };
+    onmouseup = e => {
+      if (!drag) return; drag = null; if (moved > 6 || !ws || !owner || e.target !== cv) return;
+      const [x, y] = tile(e);
+      if (e.button === 2) menu(e, x, y);
+      else if (e.button === 0) send(alive() ? { t: 'atk', x, y, pct: pct() } : { t: 'spawn', x, y });
+    };
+    cv.oncontextmenu = e => e.preventDefault();
+    onkeydown = e => { if (e.key === 'Escape') $('cm').style.display = 'none'; };
+    cv.onwheel = e => {
+      const f = e.deltaY < 0 ? 1.15 : 1 / 1.15, z = Math.min(30, Math.max(1, zoom * f));
+      ox = e.clientX - (e.clientX - ox) * z / zoom; oy = e.clientY - (e.clientY - oy) * z / zoom; zoom = z;
+    };
+    (function loop() {
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0b1a2b'; ctx.fillRect(0, 0, cv.width, cv.height);
+      if (off) {
+        if (dirty) { octx.putImageData(img, 0, 0); dirty = false; }
+        ctx.imageSmoothingEnabled = false; ctx.setTransform(zoom, 0, 0, zoom, ox, oy); ctx.drawImage(off, 0, 0);
+        for (const b of boats) { ctx.fillStyle = '#fff'; ctx.fillRect(b[0] - 1.5, b[1] - 1.5, 3, 3); ctx.fillStyle = `rgb(${color(b[2], 0)})`; ctx.fillRect(b[0] - 1, b[1] - 1, 2, 2); }
+      }
+      requestAnimationFrame(loop);
+    })();
+  </script>
+</body>
+
+</html>
