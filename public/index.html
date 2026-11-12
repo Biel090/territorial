@@ -463,7 +463,9 @@
       }));
       ws.onmessage = e => {
         const m = JSON.parse(e.data);
-        if (m.t === 'err') alert(m.m);
+        if (m.t === 'err') {
+          if (!(gameMode === 'classic' && m.m === 'Una expedicio necessita almenys 5 soldats.')) alert(m.m);
+        }
         else if (m.t === 'init') {
           W = m.w; H = m.h; NB = m.nb; me = m.me; land = m.land; gameState = m.state; host = m.host; gameMode = m.mode;
           owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0));
@@ -537,7 +539,7 @@
       $('hint').textContent = q && q[4]
         ? gameMode === 'economic'
           ? 'Fes clic a terra lliure per expandir o a un enemic per atacar la frontera · clic dret per construir'
-          : 'Clic esquerre: atacar amb totes les tropes · clic dret: pactes i donacions · roda: zoom · arrossega: moure'
+          : 'Clic esquerre: atacar · clic dret: pactes i donacions · roda: zoom · arrossega: moure'
         : 'Fes clic esquerre a terra lliure, lluny d\'altres, per aparèixer';
       const R = $('rank'); R.textContent = '';
       const row = (a) => { const d = document.createElement('div'); a.forEach((t, i) => { const s = document.createElement('span'); if (i === 0) { const c = color(t, 0); s.style.cssText = `background:rgb(${c});height:10px;margin-top:3px`; } else s.textContent = t; d.appendChild(s); }); R.appendChild(d); return d; };
@@ -775,12 +777,12 @@
           });
         }
         if (gameState === 'playing' && o !== me && o !== 255) {
-          const label = gameMode === 'economic' ? 'Enviar exèrcit' : 'Atacar amb totes les tropes';
+          const label = gameMode === 'economic' ? 'Enviar exèrcit' : 'Atacar';
           if (isAlly) add(`Trair pacte i ${label.toLowerCase()}`, () => sendExpedition('atk', x, y, true));
           else add(label, () => sendExpedition('atk', x, y));
         }
         if (gameState === 'playing' && o !== me) {
-          const label = gameMode === 'economic' ? 'Enviar exèrcit per mar' : 'Enviar vaixell amb totes les tropes';
+          const label = gameMode === 'economic' ? 'Enviar exèrcit per mar' : 'Enviar vaixell';
           if (isAlly) add(`Trair pacte i ${label.toLowerCase()}`, () => sendExpedition('boat', x, y, true));
           else add(label, () => sendExpedition('boat', x, y));
         }
