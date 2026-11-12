@@ -112,6 +112,32 @@ test('fixed-price trades transfer listed stock and food atomically', () => {
   assert.equal(buyer.cars, 1);
 });
 
+test('market rejects sales that exceed buyer capacity without charging food', () => {
+  const room = makeRoom(), seller = addTestPlayer(room, 'Bot'), buyer = addTestPlayer(room, 'Buyer');
+  seller.bot = true;
+  seller.population = buyer.population = 1000;
+  seller.allocation = buyer.allocation = 100;
+  seller.bal = 10; seller.offers.soldiers = 1;
+  buyer.bal = 1000; buyer.food = 10;
+
+  game.buyFromPlayer(room, buyer, seller.id, 'soldiers', 1);
+  assert.equal(seller.bal, 10);
+  assert.equal(seller.food, 0);
+  assert.equal(buyer.bal, 1000);
+  assert.equal(buyer.food, 10);
+});
+
+test('bots list only surplus soldiers and logistics automatically', () => {
+  const room = makeRoom(), bot = addTestPlayer(room, 'Bot');
+  bot.bot = true; bot.population = 1000; bot.allocation = 100;
+  bot.bal = 800; bot.cars = 4; bot.ships = 3;
+
+  game.updateBotOffers(bot);
+  assert.equal(bot.offers.soldiers, 300);
+  assert.equal(bot.offers.cars, 3);
+  assert.equal(bot.offers.ships, 2);
+});
+
 test('direct vehicle purchases require resources and add inventory', () => {
   const room = makeRoom(), player = addTestPlayer(room, 'A');
   player.resources = 200;
@@ -131,6 +157,11 @@ test('land and sea expeditions consume the matching logistics; classic attacks d
   assert.equal(attacker.bal, 100);
   assert.equal(attacker.cars, 0);
   assert.equal(room.attacks.length, 1);
+
+  attacker.bal = 200; attacker.cars = 1; room.attacks = [];
+  game.attack(room, attacker, 2, 1, 0.5, false, { mode: 'percent' });
+  assert.equal(attacker.bal, 100);
+  assert.equal(attacker.cars, 0);
 
   attacker.bal = 200; attacker.cars = 0; room.attacks = [];
   game.attack(room, attacker, 2, 1, 0.5, false, { mode: 'exact', amount: 100 });

@@ -77,6 +77,10 @@ function buildingCounts(r, id) {
 function factoryCount(counts) { return counts.carFactories + counts.shipyards + counts.armsFactories; }
 function combatEfficiency() { return 1; }
 function armyCapacity(p) { return p.population * p.allocation / 100; }
+function populationGrowthRate(p, counts) {
+  const capacity = counts.cities * 1000;
+  return Math.min(p.population * .01 * p.population / 1000, Math.max(0, capacity - p.population));
+}
 function clampOffers(p) {
   p.offers.soldiers = Math.min(Math.floor(p.offers.soldiers), Math.floor(p.bal));
   p.offers.cars = Math.min(Math.floor(p.offers.cars), Math.floor(p.cars));
@@ -103,6 +107,7 @@ function economyStatus(r, p) {
     foodAllocation: p.foodAllocation, foodWorkers: Math.floor(workforce.foodWorkers),
     productionWorkers: Math.floor(workforce.productionWorkers),
     foodRate: workforce.foodRate, carRate: workforce.carRate, shipRate: workforce.shipRate,
+    populationGrowthRate: populationGrowthRate(p, counts),
     recruitmentRate: Math.min(counts.armsFactories * ARMS_FACTORY_RATE, Math.max(0, armyCapacity(p) - p.bal)),
     armyCapacity: armyCapacity(p), carFactories: counts.carFactories,
     shipyards: counts.shipyards, armsFactories: counts.armsFactories,
@@ -221,7 +226,8 @@ function requiredVehicles(troops) { return Math.ceil(troops / SOLDIERS_PER_VEHIC
 function spendLogistics(r, p, troops, good) {
   if (r.mode !== 'economic') return true;
   const needed = requiredVehicles(troops);
-  if (p[good] < needed) {
+  const available = Math.max(0, p[good] - p.offers[good]);
+  if (available < needed) {
     actionError(r, p, `Calen ${needed} ${good === 'cars' ? 'cotxes' : 'vaixells'} per enviar aquesta expedicio.`);
     return false;
   }
@@ -294,7 +300,7 @@ function boat(r, p, tx, ty, pct, betray = false, selection = null) {
       if (O[wi] === WATER && d < targetDistance[wi]) { targetDistance[wi] = d; targetByWater[wi] = i; }
     }
   }
-  if (closestTarget < 0) return;
+  if (closestTarget < 0) { actionError(r, p, 'No hi ha cap costa enemiga disponible per a aquesta ruta.'); return; }
   const previousStart = new Int32Array(size); previousStart.fill(-1);
   const previous = new Int32Array(size); previous.fill(-2);
   const queue = new Int32Array(size); let head = 0, tail = 0;
@@ -319,7 +325,7 @@ function boat(r, p, tx, ty, pct, betray = false, selection = null) {
       if (O[ni] === WATER && previous[ni] === -2) { previous[ni] = wi; previousStart[ni] = previousStart[wi]; queue[tail++] = ni; }
     }
   }
-  if (end < 0) return;
+  if (end < 0) { actionError(r, p, 'No s’ha trobat una ruta marítima cap a aquesta costa.'); return; }
   const path = [L];
   for (let i = end; i >= 0; i = previous[i]) path.push(i);
   path.push(previousStart[end]);
@@ -333,6 +339,7 @@ function boat(r, p, tx, ty, pct, betray = false, selection = null) {
   if (!spendLogistics(r, p, troops, 'ships')) return;
   if (betraying) { r.pacts.delete(pair(p.id, targetOwnerId)); status(r); }
   p.bal -= troops;
+  clampOffers(p);
   r.boats.push({ a: p.id, path, L, troops: troops * .96875, efficiency, t0: r.t, dur: Math.max(1, Math.ceil((path.length - 1) / 2)) });
 }
 function runBoats(r) {
@@ -397,6 +404,7 @@ function botEconomicThink(r, b) {
   const desiredAllocation = b.population < 850 ? 40 : Math.min(85, 55 + Math.floor(b.skill * 30));
   b.allocation = desiredAllocation;
   b.bal = Math.min(b.bal, armyCapacity(b));
+  clampOffers(b);
   let building = null;
   if (counts.cities && b.population >= counts.cities * 1000 && b.resources >= 60) building = 'city';
   else if (factoryCount(counts) < 10 && b.resources >= 120) {
@@ -414,9 +422,7 @@ function botEconomicThink(r, b) {
 function processEconomicPlayer(r, p) {
   const counts = buildingCounts(r, p.id);
   const workforce = economicWorkforce(p, counts);
-  const cityCapacity = counts.cities * 1000;
-  const growthRate = .01 * p.population / 1000;
-  let growth = Math.min(p.population * growthRate, Math.max(0, cityCapacity - p.population));
+  let growth = populationGrowthRate(p, counts);
   for (const i of r.cityTiles[p.id]) {
     if (growth <= 0) break;
     const added = Math.min(growth, 1000 - r.cityPopulation[i]);
@@ -499,14 +505,13 @@ function tick(r) {
         if (!p || !p.alive) continue;
         if (r.mode === 'economic') {
           processEconomicPlayer(r, p);
-          if (p.bot) updateBotOffers(p);
           p.rate = 0;
         } else {
           p.rate = .02 * Math.max(0, 1 - p.bal / (100 * p.tiles));
           p.bal += p.tiles * .3 + p.bal * p.rate;
         }
         if (p.bot) {
-          if (r.mode === 'economic') botEconomicThink(r, p);
+          if (r.mode === 'economic') { botEconomicThink(r, p); updateBotOffers(p); }
           if (Math.random() < .4 + .5 * p.skill) botThink(r, p);
         }
       }
@@ -564,7 +569,7 @@ wss.on('connection', ws => {
       p.foodAllocation = Math.min(100, Math.max(0, Number(d.value) || 0));
       status(r);
     } else if (r && d.t === 'build' && r.mode === 'economic' && r.state === 'playing' && p.alive) {
-      buildStructure(r, p, Number(d.i) | 0, d.building);
+      if (!buildStructure(r, p, Number(d.i) | 0, d.building)) actionError(r, p, 'No pots construir aquí: comprova el territori, el cost i el límit de fàbriques.');
     } else if (r && d.t === 'marketList' && r.mode === 'economic' && r.state === 'playing' && p.alive) {
       setMarketOffer(r, p, d.good, d.amount);
     } else if (r && d.t === 'marketBuy' && r.mode === 'economic' && r.state === 'playing' && p.alive) {
@@ -628,6 +633,6 @@ if (require.main === module) {
 }
 module.exports = {
   W, H, WATER, STRUCTURE, MARKET_PRICE, DIRECT_PRICE, addPlayer, buildingCounts,
-  armyCapacity, economicWorkforce, economyStatus, buildStructure, processEconomicPlayer,
-  setMarketOffer, buyFromPlayer, buyDirect, attack, boat
+  armyCapacity, populationGrowthRate, economicWorkforce, economyStatus, buildStructure, processEconomicPlayer,
+  updateBotOffers, setMarketOffer, buyFromPlayer, buyDirect, attack, boat
 };

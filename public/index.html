@@ -111,8 +111,9 @@
       display: none;
       right: 8px;
       top: 84px;
-      bottom: 8px;
       width: min(340px, calc(100vw - 24px));
+      max-height: calc(100vh - 100px);
+      box-sizing: border-box;
       overflow: auto;
       padding: 12px;
       border: 1px solid #ffffff24;
@@ -120,6 +121,25 @@
       background: #101c2eef;
       box-shadow: 0 12px 40px #0008;
       z-index: 3
+    }
+
+    #econ-panel.minimized {
+      width: min(240px, calc(100vw - 24px));
+      overflow: hidden
+    }
+
+    #econ-panel.minimized #econ-content {
+      display: none
+    }
+
+    #econ-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      cursor: move;
+      touch-action: none;
+      user-select: none
     }
 
     #econ-panel h2,
@@ -136,12 +156,69 @@
       color: #bfdbfe
     }
 
+    .econ-title {
+      display: flex;
+      align-items: center;
+      gap: 5px
+    }
+
+    .econ-info {
+      display: inline-grid;
+      place-items: center;
+      width: 15px;
+      height: 15px;
+      border: 1px solid #93c5fd;
+      border-radius: 50%;
+      color: #bfdbfe;
+      font: 10px/1 system-ui, sans-serif;
+      cursor: help
+    }
+
+    #econ-toggle {
+      flex: 0 0 auto;
+      padding: 3px 8px;
+      background: #2a3b55;
+      font-size: 16px;
+      line-height: 1.2;
+      cursor: pointer
+    }
+
+    #econ-summary,
+    #econ-workers,
+    #econ-production {
+      color: #b6c4d6;
+      font-size: 11px
+    }
+
     .econ-section {
       display: grid;
       gap: 6px;
       margin-top: 12px;
       padding-top: 10px;
       border-top: 1px solid #ffffff24
+    }
+
+    .econ-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 5px
+    }
+
+    .econ-metric {
+      display: grid;
+      gap: 2px;
+      padding: 6px;
+      border-radius: 6px;
+      background: #ffffff10
+    }
+
+    .econ-metric span {
+      color: #b6c4d6;
+      font-size: 10px
+    }
+
+    .econ-metric strong {
+      font-size: 14px
     }
 
     .econ-row {
@@ -175,7 +252,7 @@
 
     .market-offer {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: 1fr auto;
       align-items: center;
       gap: 5px;
       padding: 5px;
@@ -196,14 +273,10 @@
 
     @media (max-width: 700px) {
       #econ-panel {
-        left: 8px;
-        right: 8px;
-        top: auto;
-        width: auto;
         max-height: 48vh
       }
 
-      #rank {
+      .economic #rank {
         display: none
       }
     }
@@ -276,37 +349,43 @@
     <button id="restart" style="display:none">Reiniciar Partida</button>
   </div>
   <aside id="econ-panel" aria-label="Gestió econòmica">
-    <h2>Gestió econòmica</h2>
-    <div id="econ-summary"></div>
+    <header id="econ-header">
+      <div>
+        <h2 class="econ-title">Economia <span class="econ-info" tabindex="0" title="Arrossega aquesta capçalera per moure el panell. Les icones d’informació expliquen cada opció." aria-label="Ajuda del panell">i</span></h2>
+        <div id="econ-summary"></div>
+      </div>
+      <button id="econ-toggle" type="button" aria-expanded="true" aria-label="Minimitzar panell" title="Minimitzar">−</button>
+    </header>
+    <div id="econ-content">
     <section class="econ-section">
-      <h3>Població i treball</h3>
+      <h3 class="econ-title">Població i treball <span class="econ-info" tabindex="0" title="El percentatge d’exèrcit fixa quants habitants poden ser soldats. La resta són civils; reparteix-los entre aliments i producció." aria-label="Informació de població i treball">i</span></h3>
       <div class="econ-row">
-        <label id="allocation-wrap" for="allocation">Exèrcit</label>
+        <label id="allocation-wrap" for="allocation" title="Percentatge d’habitants assignat a l’exèrcit">Exèrcit</label>
         <input id="allocation" type="range" min="0" max="100" step="1" value="35">
         <span id="allocation-label">35%</span>
       </div>
       <div class="econ-row">
-        <label for="food-allocation">Civils a aliments</label>
+        <label for="food-allocation" title="Percentatge dels civils que produeix aliments">Aliments</label>
         <input id="food-allocation" type="range" min="0" max="100" step="1" value="50">
         <span id="food-allocation-label">50%</span>
       </div>
       <div id="econ-workers" class="muted"></div>
     </section>
     <section class="econ-section">
-      <h3>Inventari i producció</h3>
-      <div id="econ-inventory"></div>
+      <h3 class="econ-title">Inventari <span id="inventory-info" class="econ-info" tabindex="0" aria-label="Informació d’inventari">i</span></h3>
+      <div id="econ-inventory" class="econ-metrics"></div>
+      <div id="econ-production"></div>
       <div class="econ-row">
-        <label for="direct-buy-amount">Compra directa</label>
-        <input id="direct-buy-amount" type="number" min="1" step="1" value="1">
+        <label for="direct-buy-amount">Comprar vehicles</label>
+        <input id="direct-buy-amount" type="number" min="1" step="1" value="1" aria-label="Nombre de vehicles a comprar">
       </div>
       <div class="econ-row">
         <button id="buy-cars">Comprar cotxes</button>
         <button id="buy-ships">Comprar vaixells</button>
       </div>
-      <div class="muted">100 recursos per unitat. Els vehicles també es poden comerciar amb aliments.</div>
     </section>
     <section class="econ-section">
-      <h3>Expedicions</h3>
+      <h3 class="econ-title">Expedicions <span class="econ-info" tabindex="0" title="Clic esquerre sobre terra per enviar cotxes; clic dret i tria expedició marítima per enviar vaixells. Cal 1 vehicle per cada 100 soldats enviats." aria-label="Informació d’expedicions">i</span></h3>
       <div class="econ-row">
         <label for="expedition-mode">Quantitat</label>
         <select id="expedition-mode">
@@ -323,12 +402,11 @@
         <label for="expedition-amount">Soldats</label>
         <input id="expedition-amount" type="number" min="5" step="1" value="100">
       </div>
-      <div class="muted">En fer clic a un territori: 1 cotxe o vaixell per cada 100 soldats.</div>
     </section>
     <section class="econ-section">
-      <h3>Mercat (pagament en aliments)</h3>
+      <h3 class="econ-title">Mercat <span class="econ-info" tabindex="0" title="Les compres i vendes es paguen amb aliments: 1 aliment per soldat, 100 per cotxe o vaixell. Els vehicles comprats directament costen 100 recursos cadascun." aria-label="Informació del mercat">i</span></h3>
       <div class="econ-row">
-        <select id="market-good">
+        <select id="market-good" aria-label="Producte que poses a la venda">
           <option value="soldiers">Soldats</option>
           <option value="cars">Cotxes</option>
           <option value="ships">Vaixells</option>
@@ -337,12 +415,12 @@
         <button id="market-list">Posar a la venda</button>
       </div>
       <div class="econ-row">
-        <label for="market-buy-amount">Quantitat a comprar</label>
+        <label for="market-buy-amount">A comprar</label>
         <input id="market-buy-amount" type="number" min="1" step="1" value="1">
       </div>
-      <div class="muted">Preus fixos: 1 aliment/soldat, 100 aliments/cotxe o vaixell.</div>
       <div id="econ-market"></div>
     </section>
+    </div>
   </aside>
   <div class="h" id="bot">
     <div id="hint"></div>
@@ -441,19 +519,46 @@
         : 'Fes clic esquerre a terra lliure, lluny d\'altres, per aparèixer';
       const R = $('rank'); R.textContent = '';
       const row = (a) => { const d = document.createElement('div'); a.forEach((t, i) => { const s = document.createElement('span'); if (i === 0) { const c = color(t, 0); s.style.cssText = `background:rgb(${c});height:10px;margin-top:3px`; } else s.textContent = t; d.appendChild(s); }); R.appendChild(d); return d; };
-      row([0, 'Jugador', 'Tropes', 'Int.', 'Terra']).style.opacity = .6;
-      p.filter(x => x[4]).sort((a, b) => b[2] - a[2]).forEach(x => { const d = row([x[0], x[1], x[3], (x[5] * 100).toFixed(1) + '%', (x[2] / land * 100).toFixed(1) + '%']); if (x[0] === me) d.style.fontWeight = 'bold'; });
+      row([0, 'Jugador', 'Tropes', gameMode === 'economic' ? 'Pobl.' : 'Int.', 'Terra']).style.opacity = .6;
+      p.filter(x => x[4]).sort((a, b) => b[2] - a[2]).forEach(x => {
+        const detail = gameMode === 'economic' ? Math.floor(x[10]) : (x[5] * 100).toFixed(1) + '%';
+        const d = row([x[0], x[1], x[3], detail, (x[2] / land * 100).toFixed(1) + '%']);
+        if (x[0] === me) d.style.fontWeight = 'bold';
+      });
     }
     function updateEconomicPanel() {
       if (gameMode !== 'economic' || !economy[me]) return;
       const q = pm[me], e = economy[me];
-      $('econ-summary').textContent = `${Math.floor(q[10])} habitants · ${Math.floor(q[3])} soldats disponibles · ${Math.floor(q[6])} recursos`;
       if (document.activeElement !== $('allocation')) $('allocation').value = q[7];
       if (document.activeElement !== $('food-allocation')) $('food-allocation').value = e.foodAllocation;
       $('allocation-label').textContent = `${q[7]}%`;
       $('food-allocation-label').textContent = `${e.foodAllocation}% dels civils`;
-      $('econ-workers').textContent = `${q[7]}% exèrcit · ${100 - q[7]}% civils · ${e.foodWorkers} treballadors d’aliments · ${e.productionWorkers} de producció`;
-      $('econ-inventory').textContent = `Aliments: ${e.food} (+${e.foodRate.toFixed(1)}/s) · Cotxes: ${e.cars} (+${e.carRate.toFixed(2)}/s) · Vaixells: ${e.ships} (+${e.shipRate.toFixed(2)}/s) · Reclutament: +${e.recruitmentRate.toFixed(1)} soldats/s · Capacitat: ${Math.floor(e.armyCapacity)} · Fàbriques: cotxes ${e.carFactories}, drassanes ${e.shipyards}, armes ${e.armsFactories}`;
+      $('econ-summary').textContent = `${Math.floor(q[10])} habitants · +${e.populationGrowthRate.toFixed(1)}/s`;
+      $('econ-workers').textContent = `Treballadors: aliments ${e.foodWorkers} · producció ${e.productionWorkers}`;
+      const inventory = $('econ-inventory');
+      inventory.replaceChildren();
+      for (const [label, value, rate] of [
+        ['Aliments', e.food, e.foodRate],
+        ['Cotxes', e.cars, e.carRate],
+        ['Vaixells', e.ships, e.shipRate]
+      ]) {
+        const metric = document.createElement('div');
+        metric.className = 'econ-metric';
+        const name = document.createElement('span');
+        name.textContent = label;
+        const amount = document.createElement('strong');
+        amount.textContent = value;
+        const production = document.createElement('span');
+        production.textContent = `+${rate.toFixed(1)}/s`;
+        metric.append(name, amount, production);
+        inventory.appendChild(metric);
+      }
+      $('econ-production').textContent = `Soldats +${e.recruitmentRate.toFixed(1)}/s · Capacitat ${Math.floor(e.armyCapacity)}`;
+      $('inventory-info').title = `Es produeixen ${e.foodRate.toFixed(1)} aliments/s, ${e.carRate.toFixed(2)} cotxes/s i ${e.shipRate.toFixed(2)} vaixells/s. Fàbriques: cotxes ${e.carFactories}, drassanes ${e.shipyards}, armes ${e.armsFactories}. En venda: ${e.offers.soldiers} soldats, ${e.offers.cars} cotxes, ${e.offers.ships} vaixells.`;
+      const directAmount = Number($('direct-buy-amount').value);
+      const validDirectAmount = Number.isSafeInteger(directAmount) && directAmount > 0;
+      $('buy-cars').disabled = !validDirectAmount || q[6] < directAmount * 100;
+      $('buy-ships').disabled = !validDirectAmount || q[6] < directAmount * 100;
       if (document.activeElement !== $('market-amount')) {
         const selected = $('market-good').value;
         $('market-amount').value = e.offers[selected];
@@ -468,9 +573,11 @@
         for (const good of ['soldiers', 'cars', 'ships']) {
           if (!seller[good]) continue;
           const price = good === 'soldiers' ? 1 : 100;
+          const label = { soldiers: 'soldats', cars: 'cotxes', ships: 'vaixells' }[good];
           const row = document.createElement('div'); row.className = 'market-offer';
           const description = document.createElement('span');
-          description.textContent = `${seller.name}${seller.bot ? ' · bot' : ''}: ${seller[good]} ${good} · ${price} aliments/unitat`;
+          description.textContent = `${seller.name}${seller.bot ? ' · bot' : ''}: ${seller[good]} ${label}`;
+          description.title = `${price} aliments per unitat`;
           const requestedAmount = Number($('market-buy-amount').value);
           const amount = Number.isSafeInteger(requestedAmount) && requestedAmount > 0 ? requestedAmount : 0;
           const buy = document.createElement('button'); buy.textContent = `Comprar ${amount}`;
@@ -481,6 +588,39 @@
       }
       if (!root.childElementCount) root.textContent = 'No hi ha estoc a la venda.';
     }
+    const econPanel = $('econ-panel'), econHeader = $('econ-header');
+    $('econ-toggle').onclick = () => {
+      const minimized = econPanel.classList.toggle('minimized');
+      $('econ-toggle').textContent = minimized ? '+' : '−';
+      $('econ-toggle').title = minimized ? 'Ampliar' : 'Minimitzar';
+      $('econ-toggle').setAttribute('aria-label', minimized ? 'Ampliar panell' : 'Minimitzar panell');
+      $('econ-toggle').setAttribute('aria-expanded', String(!minimized));
+    };
+    let panelDrag = null;
+    econHeader.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || e.target.closest('button,.econ-info')) return;
+      const rect = econPanel.getBoundingClientRect();
+      panelDrag = { x: e.clientX, y: e.clientY, left: rect.left, top: rect.top };
+      econHeader.setPointerCapture(e.pointerId);
+    });
+    econHeader.addEventListener('pointermove', e => {
+      if (!panelDrag) return;
+      const rect = econPanel.getBoundingClientRect();
+      const left = Math.max(8, Math.min(innerWidth - rect.width - 8, panelDrag.left + e.clientX - panelDrag.x));
+      const top = Math.max(8, Math.min(innerHeight - rect.height - 8, panelDrag.top + e.clientY - panelDrag.y));
+      econPanel.style.left = `${left}px`;
+      econPanel.style.right = 'auto';
+      econPanel.style.top = `${top}px`;
+    });
+    const stopPanelDrag = () => { panelDrag = null; };
+    econHeader.addEventListener('pointerup', stopPanelDrag);
+    econHeader.addEventListener('pointercancel', stopPanelDrag);
+    window.addEventListener('resize', () => {
+      if (!econPanel.style.left) return;
+      const rect = econPanel.getBoundingClientRect();
+      econPanel.style.left = `${Math.max(8, Math.min(innerWidth - rect.width - 8, rect.left))}px`;
+      econPanel.style.top = `${Math.max(8, Math.min(innerHeight - rect.height - 8, rect.top))}px`;
+    });
     $('start').onclick = () => send({ t: 'start' });
     $('restart').onclick = () => send({ t: 'restart' });
     $('pct').oninput = () => $('pl').textContent = $('pct').value + '%';
@@ -500,6 +640,7 @@
     };
     $('market-list').onclick = () => send({ t: 'marketList', good: $('market-good').value, amount: Number($('market-amount').value) });
     $('market-buy-amount').oninput = renderMarket;
+    $('direct-buy-amount').oninput = updateEconomicPanel;
     $('buy-cars').onclick = () => send({ t: 'directBuy', good: 'cars', amount: Number($('direct-buy-amount').value) });
     $('buy-ships').onclick = () => send({ t: 'directBuy', good: 'ships', amount: Number($('direct-buy-amount').value) });
     const tile = e => [Math.floor((e.clientX - ox) / zoom), Math.floor((e.clientY - oy) / zoom)];
