@@ -427,8 +427,7 @@ function attack(r, p, tx, ty, pct, betray = false, selection = null) {
     for (const [dx, dy] of D4) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && O[ny * W + nx] === p.id) { fr.add(k); break; } }
   }
   if (!fr.size) return;
-  const troops = selectTroops(p, pct, selection);
-  if (troops === null) { actionError(r, p, 'No tens prou soldats disponibles per aquesta expedicio.'); return; }
+  const troops = Math.max(0, p.bal);
   if (troops < 5) { actionError(r, p, 'Una expedicio necessita almenys 5 soldats.'); return; }
   const efficiency = combatEfficiency(r, p.id);
   if (r.mode === 'economic' && t && (troops * efficiency <= r.players[t].bal * combatEfficiency(r, t))) return;
@@ -496,8 +495,7 @@ function boat(r, p, tx, ty, pct, betray = false, selection = null) {
   path.push(previousStart[end]);
   path.reverse();
   const targetOwnerId = O[L], betraying = targetOwnerId && allied(r, p.id, targetOwnerId);
-  const troops = selectTroops(p, pct, selection);
-  if (troops === null) { actionError(r, p, 'No tens prou soldats disponibles per aquesta expedicio.'); return; }
+  const troops = Math.max(0, p.bal);
   if (troops < 5) { actionError(r, p, 'Una expedicio necessita almenys 5 soldats.'); return; }
   const efficiency = combatEfficiency(r, p.id);
   if (r.mode === 'economic' && targetOwnerId && troops * .96875 * efficiency <= r.players[targetOwnerId].bal * combatEfficiency(r, targetOwnerId)) return;
