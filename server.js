@@ -74,7 +74,10 @@ function buildingCounts(r, id) {
   return r.buildings[id] || { cities: 0, shipyards: 0, armsFactories: 0 };
 }
 function factoryCount(counts) { return counts.shipyards + counts.armsFactories; }
-function combatEfficiency() { return 1; }
+function combatEfficiency(r, id) {
+  if (r.mode !== 'economic') return 1;
+  return 1 + Math.min(1, buildingCounts(r, id).armsFactories * .1);
+}
 function armyCapacity(p) { return p.population * p.allocation / 100; }
 function populationGrowthRate(p, counts) {
   const remaining = counts.cities * 1000 - p.population;
@@ -100,6 +103,7 @@ function economyStatus(r, p) {
     populationGrowthRate: populationGrowthRate(p, counts),
     recruitmentRate: Math.min(counts.armsFactories * ARMS_FACTORY_RATE, Math.max(0, armyCapacity(p) - p.bal)),
     armyCapacity: armyCapacity(p),
+    combatEfficiency: combatEfficiency(r, p.id),
     shipyards: counts.shipyards, armsFactories: counts.armsFactories,
   };
 }
@@ -248,7 +252,17 @@ function canTransit(r, p, owner) {
 }
 function findMarchPath(r, p, target, start = -1, betray = false, avoidWater = false) {
   const size = W * H, previous = new Int32Array(size).fill(-2), queue = new Int32Array(size);
+  const targetOwner = r.owner[target];
+  const attackOwner = targetOwner && targetOwner !== WATER && targetOwner !== p.id &&
+    !sameTeam(r, p.id, targetOwner) && (!allied(r, p.id, targetOwner) || betray) &&
+    !ceasefireActive(r, p.id, targetOwner) ? targetOwner : 0;
+  let closestTarget = -1, closestTargetParent = -1, closestDistance = Infinity;
   let head = 0, tail = 0;
+  const buildPath = end => {
+    const path = [];
+    for (let at = end; at >= 0; at = previous[at]) path.push(at);
+    return path.reverse();
+  };
   const addStart = i => {
     if (i >= 0 && i < size && previous[i] === -2) { previous[i] = -1; queue[tail++] = i; }
   };
@@ -257,17 +271,24 @@ function findMarchPath(r, p, target, start = -1, betray = false, avoidWater = fa
   while (head < tail) {
     const i = queue[head++];
     if (i === target) {
-      const path = [];
-      for (let at = i; at >= 0; at = previous[at]) path.push(at);
-      return path.reverse();
+      return buildPath(i);
     }
     const x = i % W, y = (i / W) | 0;
     for (const [dx, dy] of D4) {
       const nx = x + dx, ny = y + dy;
       if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
       const ni = ny * W + nx;
-      if (previous[ni] !== -2) continue;
       const owner = r.owner[ni];
+      if (attackOwner && owner === attackOwner) {
+        const distance = (nx - target % W) ** 2 + (ny - ((target / W) | 0)) ** 2;
+        if (distance < closestDistance) {
+          closestTarget = ni;
+          closestTargetParent = i;
+          closestDistance = distance;
+        }
+        continue;
+      }
+      if (previous[ni] !== -2) continue;
       if (avoidWater && owner === WATER) continue;
       const destination = ni === target && owner !== WATER && owner !== p.id &&
         !(owner && sameTeam(r, p.id, owner)) &&
@@ -278,6 +299,7 @@ function findMarchPath(r, p, target, start = -1, betray = false, avoidWater = fa
       }
     }
   }
+  if (closestTarget >= 0) return [...buildPath(closestTargetParent), closestTarget];
   return null;
 }
 function nearestLandTarget(r, p, x, y) {
@@ -295,8 +317,8 @@ function orderMarch(r, p, x, y, pct, selection, betray = false) {
   let target = y * W + x;
   if (r.owner[target] === WATER) target = nearestLandTarget(r, p, x, y);
   if (target < 0 || r.owner[target] === p.id || (r.owner[target] && allied(r, p.id, r.owner[target]) && !betray)) return;
-  const owner = r.owner[target];
-  if (owner && (ceasefireActive(r, p.id, owner) || sameTeam(r, p.id, owner))) {
+  const clickedOwner = r.owner[target];
+  if (clickedOwner && (ceasefireActive(r, p.id, clickedOwner) || sameTeam(r, p.id, clickedOwner))) {
     actionError(r, p, 'No pots atacar aquest jugador durant l’alt el foc o si sou del mateix equip.');
     return;
   }
@@ -304,6 +326,12 @@ function orderMarch(r, p, x, y, pct, selection, betray = false) {
   if (troops === null || troops < 5) { actionError(r, p, 'L’expedició necessita almenys 5 soldats disponibles.'); return; }
   let path = findMarchPath(r, p, target, -1, betray);
   if (!path) { actionError(r, p, 'No hi ha cap ruta fins al destí sense travessar territori aliè sense permís.'); return; }
+  target = path[path.length - 1];
+  const owner = r.owner[target];
+  if (owner && (ceasefireActive(r, p.id, owner) || sameTeam(r, p.id, owner))) {
+    actionError(r, p, 'No pots atacar aquest jugador durant l’alt el foc o si sou del mateix equip.');
+    return;
+  }
   if (path.some(i => r.owner[i] === WATER) && p.ships - reservedShips(r, p.id) < requiredShips(troops)) {
     const landPath = findMarchPath(r, p, target, -1, betray, true);
     if (landPath) path = landPath;
@@ -360,8 +388,7 @@ function runMarches(r) {
     if (march.index < march.path.length - 1) return true;
     const targetOwner = r.owner[march.target];
     if (targetOwner === 0) {
-      set(r, march.target, p.id);
-      p.bal += march.troops;
+      r.attacks.push({ a: p.id, t: 0, troops: march.troops, efficiency: combatEfficiency(r, p.id), fr: new Set([march.target]), done: false });
       return false;
     }
     if (!targetOwner || targetOwner === WATER || targetOwner === p.id ||
@@ -369,7 +396,7 @@ function runMarches(r) {
       p.bal += march.troops;
       return false;
     }
-    r.attacks.push({ a: p.id, t: targetOwner, troops: march.troops, efficiency: 1, fr: new Set([march.target]), done: false });
+    r.attacks.push({ a: p.id, t: targetOwner, troops: march.troops, efficiency: combatEfficiency(r, p.id), fr: new Set([march.target]), done: false });
     return false;
   });
 }
@@ -512,7 +539,11 @@ function runAttacks(r) {
       const dens = D ? D.bal / Math.max(D.tiles, 1) : 0;
       const defenseEfficiency = D ? combatEfficiency(r, D.id) : 1;
       const cost = D ? Math.max(.1, dens * 1.17 * defenseEfficiency / attackEfficiency) : 1 / attackEfficiency;
-      if (at.troops < cost) { at.troops = 0; break; }
+      if (at.troops < cost) {
+        at.troops = 0;
+        if (D) actionError(r, A, `Atac aturat: l’enemic defensa amb ${dens.toFixed(1)} soldats per territori. Envia més soldats o prova una altra frontera.`);
+        break;
+      }
       at.troops -= cost;
       if (D) D.bal = Math.max(0, D.bal - dens);
       set(r, i, at.a);
@@ -872,7 +903,7 @@ if (require.main === module) {
 }
 module.exports = {
   W, H, WATER, STRUCTURE, STARTING_MONEY, CIVILIAN_INCOME_RATE, SHIP_PRICE, PEACE_DURATION, addPlayer, spawn, buildingCounts,
-  armyCapacity, populationGrowthRate, economicWorkforce, economyStatus, buildStructure, processEconomicPlayer,
+  armyCapacity, populationGrowthRate, economicWorkforce, economyStatus, combatEfficiency, buildStructure, processEconomicPlayer,
   createShipRequest, createShipOffer, acceptShipOffer, orderMarch, findMarchPath, runMarches,
-  proposePeace, acceptPeaceOffer, incomingArmy, botMarketThink, attack, boat
+  runAttacks, proposePeace, acceptPeaceOffer, incomingArmy, botMarketThink, attack, boat
 };

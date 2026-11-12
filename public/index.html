@@ -77,6 +77,10 @@
       max-height: 35vh
     }
 
+    .economic #rank div {
+      grid-template-columns: 12px 72px 40px 38px 35px 52px
+    }
+
     #rank div {
       display: grid;
       grid-template-columns: 12px 90px 52px 42px 44px;
@@ -383,7 +387,7 @@
         <input id="allocation" type="range" min="0" max="100" step="1" value="35">
         <span id="allocation-label">35%</span>
       </div>
-      <div id="econ-workers" class="muted"></div>
+      <div id="econ-workers" class="muted" title="La densitat defensiva és el nombre de soldats per territori: com més baixa, més fàcil és que t’envaeixin."></div>
     </section>
     <section class="econ-section">
       <h3 class="econ-title">Economia i flota <span id="inventory-info" class="econ-info" tabindex="0" aria-label="Informació d’inventari">i</span></h3>
@@ -391,7 +395,7 @@
       <div id="econ-production" class="muted"></div>
     </section>
     <section class="econ-section">
-      <h3 class="econ-title">Expedicions <span class="econ-info" tabindex="0" title="Fes clic a qualsevol territori per donar una ordre. Les tropes segueixen una ruta per terreny neutral o propi; cal permís per travessar fronteres i un vaixell per cada 100 soldats a cada tram marítim." aria-label="Informació d’expedicions">i</span></h3>
+      <h3 class="econ-title">Expedicions <span class="econ-info" tabindex="0" title="Fes clic a terra lliure per expandir o a un enemic per atacar-ne la frontera. Les tropes segueixen una ruta; cal permís per travessar altres fronteres i un vaixell per cada 100 soldats a cada tram marítim." aria-label="Informació d’expedicions">i</span></h3>
       <div class="econ-row">
         <label for="expedition-mode">Quantitat</label>
         <select id="expedition-mode">
@@ -531,15 +535,23 @@
       }
       $('hint').textContent = q && q[4]
         ? gameMode === 'economic'
-          ? 'Fes clic al territori objectiu per enviar una expedició · clic dret per construir · gestiona economia al panell'
+          ? 'Fes clic a terra lliure per expandir o a un enemic per atacar la frontera · clic dret per construir'
           : 'Esq: atacar · Dret: menú · roda: zoom · arrossega: moure'
         : 'Fes clic esquerre a terra lliure, lluny d\'altres, per aparèixer';
       const R = $('rank'); R.textContent = '';
       const row = (a) => { const d = document.createElement('div'); a.forEach((t, i) => { const s = document.createElement('span'); if (i === 0) { const c = color(t, 0); s.style.cssText = `background:rgb(${c});height:10px;margin-top:3px`; } else s.textContent = t; d.appendChild(s); }); R.appendChild(d); return d; };
-      row([0, 'Jugador', 'Tropes', gameMode === 'economic' ? 'Pobl.' : 'Int.', 'Terra']).style.opacity = .6;
+      const headings = gameMode === 'economic'
+        ? [0, 'Jugador', 'Tropes', 'Pobl.', 'Terra', 'S/Terra']
+        : [0, 'Jugador', 'Tropes', 'Int.', 'Terra'];
+      const header = row(headings);
+      header.style.opacity = .6;
+      if (gameMode === 'economic') header.lastElementChild.title = 'Soldats per píxel de territori; menys = més fàcil d’envair.';
       p.filter(x => x[4]).sort((a, b) => b[2] - a[2]).forEach(x => {
         const detail = gameMode === 'economic' ? Math.floor(x[10]) : (x[5] * 100).toFixed(1) + '%';
-        const d = row([x[0], x[1], x[3], detail, (x[2] / land * 100).toFixed(1) + '%']);
+        const values = [x[0], x[1], x[3], detail, (x[2] / land * 100).toFixed(1) + '%'];
+        if (gameMode === 'economic') values.push((x[3] / Math.max(x[2], 1)).toFixed(1));
+        const d = row(values);
+        if (gameMode === 'economic') d.lastElementChild.title = 'Soldats per píxel de territori; menys = més fàcil d’envair.';
         if (x[0] === me) d.style.fontWeight = 'bold';
       });
     }
@@ -549,7 +561,8 @@
       if (document.activeElement !== $('allocation')) $('allocation').value = q[7];
       $('allocation-label').textContent = `${q[7]}%`;
       $('econ-summary').textContent = `${Math.floor(q[10])} habitants · ${Math.floor(e.money).toLocaleString('ca-ES')} €`;
-      $('econ-workers').textContent = `${Math.floor(q[12])} civils treballen · ${Math.floor(q[3])} soldats disponibles`;
+      const defenseDensity = q[3] / Math.max(q[2], 1);
+      $('econ-workers').textContent = `${Math.floor(q[12])} civils treballen · ${Math.floor(q[3])} soldats · ${defenseDensity.toFixed(1)} soldats/territori`;
       const inventory = $('econ-inventory');
       inventory.replaceChildren();
       for (const [label, value, rate] of [
@@ -567,8 +580,8 @@
         metric.append(name, amount, production);
         inventory.appendChild(metric);
       }
-      $('econ-production').textContent = `Reclutament +${e.recruitmentRate.toFixed(1)} soldats/s · Capacitat ${Math.floor(e.armyCapacity)}`;
-      $('inventory-info').title = `Els civils generen ${e.incomeRate.toFixed(1)} €/s. Drassanes: ${e.shipyards} · fàbriques d’armes: ${e.armsFactories}.`;
+      $('econ-production').textContent = `Reclutament +${e.recruitmentRate.toFixed(1)}/s · Capacitat ${Math.floor(e.armyCapacity)} · Eficàcia ${e.combatEfficiency.toFixed(1)}x`;
+      $('inventory-info').title = `Els civils generen ${e.incomeRate.toFixed(1)} €/s. Cada fàbrica d’armes augmenta un 10% l’eficàcia d’atac i defensa (màxim +100%). Drassanes: ${e.shipyards} · fàbriques d’armes: ${e.armsFactories}.`;
       renderShipRequests();
       renderPeace();
     }

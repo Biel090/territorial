@@ -88,6 +88,22 @@ test('city, shipyard, and arms factory investments charge euros and track buildi
   assert.equal(game.buildStructure(room, player, claim(room, player, 22, 20), 'carFactory'), false);
 });
 
+test('arms factories increase combat effectiveness while classic mode stays unchanged', () => {
+  const room = makeRoom(), player = addTestPlayer(room, 'A');
+  room.buildings[player.id].armsFactories = 2;
+  assert.equal(game.combatEfficiency(room, player.id), 1.2);
+  player.bal = 100;
+  claim(room, player, 20, 20);
+  game.orderMarch(room, player, 21, 20, 0.5, { mode: 'exact', amount: 50 });
+  game.runMarches(room);
+  assert.equal(room.attacks[0].efficiency, 1.2);
+
+  room.buildings[player.id].armsFactories = 20;
+  assert.equal(game.combatEfficiency(room, player.id), 2);
+  room.mode = 'classic';
+  assert.equal(game.combatEfficiency(room, player.id), 1);
+});
+
 test('ship requests accept priced offers atomically and allow partial fills', () => {
   const room = makeRoom(), buyer = addTestPlayer(room, 'Buyer'), seller = addTestPlayer(room, 'Seller');
   seller.ships = 4;
@@ -136,7 +152,7 @@ test('bots offer ships in response to requests within the requested price limit'
   assert.equal(room.shipOffers[0].price, game.SHIP_PRICE);
 });
 
-test('land marches leave transit tiles neutral and capture the ordered neutral target', () => {
+test('land marches expand from a neutral target instead of capturing only one pixel', () => {
   const room = makeRoom(), attacker = addTestPlayer(room, 'A');
   attacker.bal = 100;
   claim(room, attacker, 1, 5);
@@ -148,10 +164,39 @@ test('land marches leave transit tiles neutral and capture the ordered neutral t
   assert.equal(room.owner[5 * game.W + 3], 0);
   assert.equal(room.owner[target], 0);
   game.runMarches(room);
-  game.runMarches(room);
+  assert.equal(room.owner[target], 0);
+  for (let i = 0; i < 30 && room.attacks.length === 0; i++) game.runMarches(room);
+  for (let i = 0; i < 30 && room.attacks.length; i++) game.runAttacks(room);
+
   assert.equal(room.owner[target], attacker.id);
-  assert.equal(room.owner[5 * game.W + 3], 0);
-  assert.equal(attacker.bal, 100);
+  assert.ok(attacker.tiles > 1);
+});
+
+test('marches reach an enemy border when the clicked tile is inside its territory', () => {
+  const room = makeRoom(), attacker = addTestPlayer(room, 'A'), defender = addTestPlayer(room, 'B');
+  attacker.bal = 100;
+  claim(room, attacker, 1, 5);
+  for (let y = 5; y <= 7; y++) for (let x = 10; x <= 12; x++) claim(room, defender, x, y);
+  const clicked = 6 * game.W + 11;
+
+  game.orderMarch(room, attacker, 11, 6, 0.5, { mode: 'exact', amount: 50 });
+
+  assert.equal(room.marches.length, 1);
+  const march = room.marches[0];
+  assert.notEqual(march.target, clicked);
+  assert.equal(room.owner[march.target], defender.id);
+  assert.ok(march.path.slice(0, -1).every(i => room.owner[i] !== defender.id));
+  for (let i = 0; i < 50 && room.marches.length; i++) game.runMarches(room);
+  assert.equal(room.attacks[0].t, defender.id);
+});
+
+test('land expansion does not turn foreign transit territory into a route', () => {
+  const room = makeRoom(), attacker = addTestPlayer(room, 'A'), foreign = addTestPlayer(room, 'B');
+  claim(room, attacker, 1, 5);
+  for (let y = 0; y < game.H; y++) claim(room, foreign, 2, y);
+  const target = 5 * game.W + 3;
+
+  assert.equal(game.findMarchPath(room, attacker, target), null);
 });
 
 test('marches wait at the shore without a ship, then resume after one is available', () => {
@@ -171,9 +216,11 @@ test('marches wait at the shore without a ship, then resume after one is availab
 
   attacker.ships = 1;
   for (let i = 0; i < 4; i++) game.runMarches(room);
+  assert.equal(room.attacks.length, 1);
+  game.runAttacks(room);
   assert.equal(room.owner[target], attacker.id);
   assert.equal(attacker.ships, 0);
-  assert.equal(attacker.bal, 100);
+  assert.equal(attacker.bal, 99);
 });
 
 test('marches choose a longer land route when ships are unavailable', () => {
@@ -192,6 +239,8 @@ test('marches choose a longer land route when ships are unavailable', () => {
   assert.ok(room.marches[0].path.every(i => room.owner[i] !== game.WATER));
   for (let i = 0; i < 10 && room.marches.length; i++) game.runMarches(room);
 
+  assert.equal(room.attacks.length, 1);
+  for (let i = 0; i < 10 && room.attacks.length; i++) game.runAttacks(room);
   assert.equal(room.owner[target], attacker.id);
   assert.equal(attacker.ships, 0);
 });
@@ -249,6 +298,24 @@ test('economic orders cannot target a teammate territory', () => {
 
   assert.equal(room.marches.length, 0);
   assert.equal(attacker.bal, 100);
+});
+
+test('more soldiers per territory make a player harder to invade', () => {
+  const attackScenario = density => {
+    const room = makeRoom(), attacker = addTestPlayer(room, 'A'), defender = addTestPlayer(room, 'B');
+    const target = claim(room, defender, 20, 20);
+    for (let x = 21; x < 30; x++) claim(room, defender, x, 20);
+    attacker.bal = 100;
+    defender.bal = density * defender.tiles;
+    room.attacks.push({ a: attacker.id, t: defender.id, troops: 50, efficiency: 1, fr: new Set([target]), done: false });
+    game.runAttacks(room);
+    return { room, attacker, defender, target };
+  };
+  const heavilyDefended = attackScenario(100);
+  const lightlyDefended = attackScenario(10);
+
+  assert.equal(heavilyDefended.room.owner[heavilyDefended.target], heavilyDefended.defender.id);
+  assert.equal(lightlyDefended.room.owner[lightlyDefended.target], lightlyDefended.attacker.id);
 });
 
 test('paid peace cancels an active attack and blocks another attack for two minutes', () => {
