@@ -200,7 +200,7 @@
 
     .econ-metrics {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 5px
     }
 
@@ -234,33 +234,52 @@
     }
 
     .econ-row input[type="number"],
-    #market-good,
-    #market-amount,
-    #market-buy-amount,
     #expedition-mode,
     #expedition-amount {
       width: 100px;
       padding: 5px 7px
     }
 
-    #econ-market {
+    #econ-requests,
+    #econ-peace {
       display: grid;
-      gap: 5px;
-      max-height: 180px;
+      gap: 6px;
+      max-height: 220px;
       overflow: auto
     }
 
-    .market-offer {
+    .ship-request,
+    .ship-offer {
       display: grid;
-      grid-template-columns: 1fr auto;
-      align-items: center;
       gap: 5px;
-      padding: 5px;
+      padding: 6px;
       border-radius: 6px;
       background: #ffffff10
     }
 
-    .market-offer button,
+    .ship-offer {
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      margin-top: 4px
+    }
+
+    .ship-request > .econ-row,
+    .ship-request > input,
+    .ship-request > button {
+      min-width: 0
+    }
+
+    #econ-requests input {
+      width: 76px;
+      padding: 5px 6px
+    }
+
+    #econ-requests button,
+    #econ-peace button {
+      padding: 5px 7px;
+      font-size: 12px
+    }
+
     .econ-section button {
       padding: 5px 7px;
       font-size: 12px
@@ -358,34 +377,21 @@
     </header>
     <div id="econ-content">
     <section class="econ-section">
-      <h3 class="econ-title">Població i treball <span class="econ-info" tabindex="0" title="El percentatge d’exèrcit fixa quants habitants poden ser soldats. La resta són civils; reparteix-los entre aliments i producció." aria-label="Informació de població i treball">i</span></h3>
+      <h3 class="econ-title">Població i exèrcit <span class="econ-info" tabindex="0" title="Els habitants civils generen ingressos i fabriquen vaixells. El percentatge militar determina la capacitat de soldats." aria-label="Informació de població i exèrcit">i</span></h3>
       <div class="econ-row">
-        <label id="allocation-wrap" for="allocation" title="Percentatge d’habitants assignat a l’exèrcit">Exèrcit</label>
+        <label id="allocation-wrap" for="allocation" title="Percentatge d’habitants assignat a l’exèrcit">Soldats</label>
         <input id="allocation" type="range" min="0" max="100" step="1" value="35">
         <span id="allocation-label">35%</span>
-      </div>
-      <div class="econ-row">
-        <label for="food-allocation" title="Percentatge dels civils que produeix aliments">Aliments</label>
-        <input id="food-allocation" type="range" min="0" max="100" step="1" value="50">
-        <span id="food-allocation-label">50%</span>
       </div>
       <div id="econ-workers" class="muted"></div>
     </section>
     <section class="econ-section">
-      <h3 class="econ-title">Inventari <span id="inventory-info" class="econ-info" tabindex="0" aria-label="Informació d’inventari">i</span></h3>
+      <h3 class="econ-title">Economia i flota <span id="inventory-info" class="econ-info" tabindex="0" aria-label="Informació d’inventari">i</span></h3>
       <div id="econ-inventory" class="econ-metrics"></div>
-      <div id="econ-production"></div>
-      <div class="econ-row">
-        <label for="direct-buy-amount">Comprar vehicles</label>
-        <input id="direct-buy-amount" type="number" min="1" step="1" value="1" aria-label="Nombre de vehicles a comprar">
-      </div>
-      <div class="econ-row">
-        <button id="buy-cars">Comprar cotxes</button>
-        <button id="buy-ships">Comprar vaixells</button>
-      </div>
+      <div id="econ-production" class="muted"></div>
     </section>
     <section class="econ-section">
-      <h3 class="econ-title">Expedicions <span class="econ-info" tabindex="0" title="Clic esquerre sobre terra per enviar cotxes; clic dret i tria expedició marítima per enviar vaixells. Cal 1 vehicle per cada 100 soldats enviats." aria-label="Informació d’expedicions">i</span></h3>
+      <h3 class="econ-title">Expedicions <span class="econ-info" tabindex="0" title="Fes clic a qualsevol territori per donar una ordre. Les tropes segueixen una ruta per terreny neutral o propi; cal permís per travessar fronteres i un vaixell per cada 100 soldats a cada tram marítim." aria-label="Informació d’expedicions">i</span></h3>
       <div class="econ-row">
         <label for="expedition-mode">Quantitat</label>
         <select id="expedition-mode">
@@ -404,21 +410,21 @@
       </div>
     </section>
     <section class="econ-section">
-      <h3 class="econ-title">Mercat <span class="econ-info" tabindex="0" title="Les compres i vendes es paguen amb aliments: 1 aliment per soldat, 100 per cotxe o vaixell. Els vehicles comprats directament costen 100 recursos cadascun." aria-label="Informació del mercat">i</span></h3>
+      <h3 class="econ-title">Demanar vaixells <span class="econ-info" tabindex="0" title="Publica una demanda amb quantitat i preu màxim en euros per vaixell. Jugadors i bots poden fer ofertes; tu decideixes quina acceptes." aria-label="Informació de demandes">i</span></h3>
       <div class="econ-row">
-        <select id="market-good" aria-label="Producte que poses a la venda">
-          <option value="soldiers">Soldats</option>
-          <option value="cars">Cotxes</option>
-          <option value="ships">Vaixells</option>
-        </select>
-        <input id="market-amount" type="number" min="0" step="1" value="0" aria-label="Quantitat que poses a la venda">
-        <button id="market-list">Posar a la venda</button>
+        <input id="ship-request-quantity" type="number" min="1" step="1" value="1" aria-label="Nombre de vaixells que demanes">
+        <input id="ship-request-price" type="number" min="1" step="1" value="1500" aria-label="Preu màxim en euros per vaixell">
+        <button id="ship-request-create">Demanar</button>
       </div>
       <div class="econ-row">
-        <label for="market-buy-amount">A comprar</label>
-        <input id="market-buy-amount" type="number" min="1" step="1" value="1">
+        <span>Vaixells</span>
+        <span>Màx. €/unitat</span>
       </div>
-      <div id="econ-market"></div>
+      <div id="econ-requests"></div>
+    </section>
+    <section class="econ-section">
+      <h3 class="econ-title">Pau i diplomàcia <span class="econ-info" tabindex="0" title="Si t’estan atacant, proposa un pagament en euros. Si l’atacant accepta, es cancel·la l’atac i comença un alto el foc de 120 segons." aria-label="Informació de diplomàcia">i</span></h3>
+      <div id="econ-peace"></div>
     </section>
     </div>
   </aside>
@@ -430,7 +436,7 @@
   <div id="card"></div>
   <script>
     const $ = id => document.getElementById(id);
-    let ws, W, H, NB, me, owner, structures, structureList = [], gameMode = 'classic', off, octx, img, land = 1, zoom = 3, ox = 0, oy = 0, dirty = false, pm = {}, economy = {}, market = [], boats = [], gameState = 'lobby', host = 0, winner = 0, allies = new Set();
+    let ws, W, H, NB, me, owner, structures, structureList = [], gameMode = 'classic', off, octx, img, land = 1, zoom = 3, ox = 0, oy = 0, dirty = false, pm = {}, economy = {}, shipRequests = [], peaceOffers = [], marches = [], threats = {}, ceasefires = [], boats = [], gameState = 'lobby', host = 0, winner = 0, allies = new Set();
     const cv = $('c'), ctx = cv.getContext('2d');
     function resize() { cv.width = innerWidth; cv.height = innerHeight } onresize = resize; resize();
     function hsl(h) { const s = .6, l = .5, a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))) }; return [f(0), f(8), f(4)] }
@@ -467,7 +473,7 @@
           $('territory').value = m.territory;
           updateControls();
         }
-        else if (m.t === 'reset') { owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0)); structures = Uint8Array.from(atob(m.structures), c => c.charCodeAt(0)); rebuildStructureList(); boats = []; for (let i = 0; i < W * H; i++) paint(i); dirty = true; gameState = 'lobby'; winner = 0; allies.clear(); updateControls(); }
+        else if (m.t === 'reset') { owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0)); structures = Uint8Array.from(atob(m.structures), c => c.charCodeAt(0)); rebuildStructureList(); boats = []; marches = []; shipRequests = []; peaceOffers = []; ceasefires = []; threats = {}; for (let i = 0; i < W * H; i++) paint(i); dirty = true; gameState = 'lobby'; winner = 0; allies.clear(); updateControls(); }
         else if (m.t === 'd') { for (let k = 0; k < m.c.length; k += 2) { owner[m.c[k]] = m.c[k + 1]; paint(m.c[k]); } dirty = true; }
         else if (m.t === 'building') {
           structures[m.i] = m.type;
@@ -478,10 +484,21 @@
         else if (m.t === 's') {
           gameState = m.state; host = m.host; winner = m.winner; gameMode = m.mode;
           economy = Object.fromEntries((m.economy || []).map(p => [p.id, p]));
-          market = m.market || [];
+          shipRequests = m.shipRequests || [];
+          peaceOffers = m.peaceOffers || [];
+          marches = m.marches || [];
+          threats = Object.fromEntries(m.threats || []);
+          ceasefires = m.ceasefires || [];
           allies = new Set(m.allies.map(x => x.slice().sort((a, b) => a - b).join(':')));
           stats(m.p); updateControls(); updateEconomicPanel();
         }
+        else if (m.t === 'peaceOffer') {
+          const accept = confirm(`${m.name} ofereix ${m.amount.toLocaleString('ca-ES')} € per aturar l’atac durant 120 segons. Acceptes?`);
+          send({ t: 'peaceReply', offer: m.id, accept });
+        }
+        else if (m.t === 'peaceResult') alert(m.accepted
+          ? `Pau acceptada amb ${m.name}. Import: ${m.amount.toLocaleString('ca-ES')} €.`
+          : `${m.name} ha rebutjat la proposta de pau.`);
         else if (m.t === 'pactRequest' && confirm(`${m.name} et proposa un pacte. Vols acceptar-lo?`)) send({ t: 'pactReply', from: m.from, accept: true });
         else if (m.t === 'pactRequest') send({ t: 'pactReply', from: m.from, accept: false });
       };
@@ -504,7 +521,7 @@
     function stats(p) {
       pm = {}; p.forEach(x => pm[x[0]] = x); const q = pm[me];
       $('top').textContent = q && q[4] ? gameMode === 'economic'
-        ? `Exèrcit: ${q[3]} · Habitants: ${q[10]} · Recursos: ${q[6]} · Ciutats: ${q[8]}`
+        ? `Soldats: ${q[3]} · Habitants: ${q[10]} · Euros: ${Math.floor(q[6]).toLocaleString('ca-ES')} · Ciutats: ${q[8]}`
         : `Tropes: ${q[3]} · Interès: ${(q[5] * 100).toFixed(1)}% · Terra: ${(q[2] / land * 100).toFixed(1)}%`
         : 'Encara no has aparegut';
       if (q && gameMode === 'economic') {
@@ -530,17 +547,14 @@
       if (gameMode !== 'economic' || !economy[me]) return;
       const q = pm[me], e = economy[me];
       if (document.activeElement !== $('allocation')) $('allocation').value = q[7];
-      if (document.activeElement !== $('food-allocation')) $('food-allocation').value = e.foodAllocation;
       $('allocation-label').textContent = `${q[7]}%`;
-      $('food-allocation-label').textContent = `${e.foodAllocation}% dels civils`;
-      $('econ-summary').textContent = `${Math.floor(q[10])} habitants · +${e.populationGrowthRate.toFixed(1)}/s`;
-      $('econ-workers').textContent = `Treballadors: aliments ${e.foodWorkers} · producció ${e.productionWorkers}`;
+      $('econ-summary').textContent = `${Math.floor(q[10])} habitants · ${Math.floor(e.money).toLocaleString('ca-ES')} €`;
+      $('econ-workers').textContent = `${Math.floor(q[12])} civils treballen · ${Math.floor(q[3])} soldats disponibles`;
       const inventory = $('econ-inventory');
       inventory.replaceChildren();
       for (const [label, value, rate] of [
-        ['Aliments', e.food, e.foodRate],
-        ['Cotxes', e.cars, e.carRate],
-        ['Vaixells', e.ships, e.shipRate]
+        ['Diners', `${Math.floor(e.money).toLocaleString('ca-ES')} €`, `+${e.incomeRate.toFixed(1)} €/s`],
+        ['Vaixells', e.ships, `+${e.shipRate.toFixed(2)}/s`]
       ]) {
         const metric = document.createElement('div');
         metric.className = 'econ-metric';
@@ -549,44 +563,109 @@
         const amount = document.createElement('strong');
         amount.textContent = value;
         const production = document.createElement('span');
-        production.textContent = `+${rate.toFixed(1)}/s`;
+        production.textContent = rate;
         metric.append(name, amount, production);
         inventory.appendChild(metric);
       }
-      $('econ-production').textContent = `Soldats +${e.recruitmentRate.toFixed(1)}/s · Capacitat ${Math.floor(e.armyCapacity)}`;
-      $('inventory-info').title = `Es produeixen ${e.foodRate.toFixed(1)} aliments/s, ${e.carRate.toFixed(2)} cotxes/s i ${e.shipRate.toFixed(2)} vaixells/s. Fàbriques: cotxes ${e.carFactories}, drassanes ${e.shipyards}, armes ${e.armsFactories}. En venda: ${e.offers.soldiers} soldats, ${e.offers.cars} cotxes, ${e.offers.ships} vaixells.`;
-      const directAmount = Number($('direct-buy-amount').value);
-      const validDirectAmount = Number.isSafeInteger(directAmount) && directAmount > 0;
-      $('buy-cars').disabled = !validDirectAmount || q[6] < directAmount * 100;
-      $('buy-ships').disabled = !validDirectAmount || q[6] < directAmount * 100;
-      if (document.activeElement !== $('market-amount')) {
-        const selected = $('market-good').value;
-        $('market-amount').value = e.offers[selected];
-      }
-      renderMarket();
+      $('econ-production').textContent = `Reclutament +${e.recruitmentRate.toFixed(1)} soldats/s · Capacitat ${Math.floor(e.armyCapacity)}`;
+      $('inventory-info').title = `Els civils generen ${e.incomeRate.toFixed(1)} €/s. Drassanes: ${e.shipyards} · fàbriques d’armes: ${e.armsFactories}.`;
+      renderShipRequests();
+      renderPeace();
     }
-    function renderMarket() {
-      const root = $('econ-market'); root.textContent = '';
-      const buyer = economy[me];
-      for (const seller of market) {
-        if (seller.id === me) continue;
-        for (const good of ['soldiers', 'cars', 'ships']) {
-          if (!seller[good]) continue;
-          const price = good === 'soldiers' ? 1 : 100;
-          const label = { soldiers: 'soldats', cars: 'cotxes', ships: 'vaixells' }[good];
-          const row = document.createElement('div'); row.className = 'market-offer';
-          const description = document.createElement('span');
-          description.textContent = `${seller.name}${seller.bot ? ' · bot' : ''}: ${seller[good]} ${label}`;
-          description.title = `${price} aliments per unitat`;
-          const requestedAmount = Number($('market-buy-amount').value);
-          const amount = Number.isSafeInteger(requestedAmount) && requestedAmount > 0 ? requestedAmount : 0;
-          const buy = document.createElement('button'); buy.textContent = `Comprar ${amount}`;
-          buy.disabled = !amount || amount > seller[good] || !buyer || buyer.food < price * amount;
-          buy.onclick = () => send({ t: 'marketBuy', seller: seller.id, good, amount });
-          row.append(description, buy); root.appendChild(row);
+    function renderShipRequests() {
+      const root = $('econ-requests'); root.textContent = '';
+      const inventory = economy[me];
+      for (const request of shipRequests) {
+        const card = document.createElement('div'); card.className = 'ship-request';
+        const title = document.createElement('div');
+        title.textContent = `${request.name}: ${request.quantity} vaixell(s) · màx. ${request.maxPrice.toLocaleString('ca-ES')} €/u.`;
+        card.appendChild(title);
+        const existingOffer = request.offers.find(offer => offer.seller === me);
+        if (request.buyer === me) {
+          const cancel = document.createElement('button');
+          cancel.textContent = 'Retirar demanda';
+          cancel.onclick = () => send({ t: 'shipRequestCancel', request: request.id });
+          card.appendChild(cancel);
+        } else if (existingOffer) {
+          const submitted = document.createElement('div');
+          submitted.textContent = 'Ja has enviat una oferta per aquesta demanda.';
+          card.appendChild(submitted);
+        } else {
+          const quantity = document.createElement('input');
+          quantity.type = 'number'; quantity.min = '1'; quantity.max = request.quantity;
+          quantity.value = String(Math.min(request.quantity, inventory ? inventory.ships : 0));
+          quantity.setAttribute('aria-label', 'Vaixells que ofereixes');
+          const price = document.createElement('input');
+          price.type = 'number'; price.min = '1'; price.max = request.maxPrice;
+          price.value = String(Math.min(request.maxPrice, 1500));
+          price.setAttribute('aria-label', 'Preu per vaixell en euros');
+          const offer = document.createElement('button');
+          offer.textContent = 'Fer oferta';
+          const updateOfferButton = () => {
+            const amount = Number(quantity.value), unitPrice = Number(price.value);
+            offer.disabled = !Number.isSafeInteger(amount) || amount < 1 || amount > request.quantity ||
+              !Number.isSafeInteger(unitPrice) || unitPrice < 1 || unitPrice > request.maxPrice ||
+              !inventory || amount > inventory.ships;
+          };
+          quantity.oninput = updateOfferButton;
+          price.oninput = updateOfferButton;
+          updateOfferButton();
+          offer.onclick = () => send({ t: 'shipOffer', request: request.id, quantity: Number(quantity.value), price: Number(price.value) });
+          card.append(quantity, price, offer);
         }
+        for (const offer of request.offers) {
+          const row = document.createElement('div'); row.className = 'ship-offer';
+          const label = document.createElement('span');
+          label.textContent = `${offer.name}${offer.bot ? ' · bot' : ''}: ${offer.quantity} a ${offer.price.toLocaleString('ca-ES')} €/u.`;
+          row.appendChild(label);
+          if (request.buyer === me) {
+            const quantity = document.createElement('input');
+            quantity.type = 'number'; quantity.min = '1'; quantity.max = offer.quantity;
+            quantity.value = String(Math.min(offer.quantity, request.quantity));
+            quantity.setAttribute('aria-label', 'Vaixells a acceptar');
+            const accept = document.createElement('button');
+            accept.textContent = 'Acceptar';
+            const updateAcceptButton = () => {
+              const amount = Number(quantity.value), total = amount * offer.price;
+              accept.disabled = !Number.isSafeInteger(amount) || amount < 1 || amount > offer.quantity ||
+                amount > request.quantity || !inventory || !Number.isSafeInteger(total) || total > inventory.money;
+            };
+            quantity.oninput = updateAcceptButton;
+            updateAcceptButton();
+            accept.onclick = () => send({ t: 'shipAccept', offer: offer.id, quantity: Number(quantity.value) });
+            row.append(quantity, accept);
+          } else if (offer.seller === me) {
+            const cancel = document.createElement('button');
+            cancel.textContent = 'Retirar oferta';
+            cancel.onclick = () => send({ t: 'shipOfferCancel', offer: offer.id });
+            row.appendChild(cancel);
+          }
+          card.appendChild(row);
+        }
+        root.appendChild(card);
       }
-      if (!root.childElementCount) root.textContent = 'No hi ha estoc a la venda.';
+      if (!root.childElementCount) root.textContent = 'No hi ha demandes actives.';
+    }
+    function renderPeace() {
+      const root = $('econ-peace'); root.textContent = '';
+      for (const offer of peaceOffers.filter(item => item.to === me)) {
+        const row = document.createElement('div'); row.className = 'ship-offer';
+        const label = document.createElement('span');
+        label.textContent = `${offer.name} ofereix ${offer.amount.toLocaleString('ca-ES')} € per la pau`;
+        const accept = document.createElement('button'); accept.textContent = 'Acceptar';
+        accept.onclick = () => send({ t: 'peaceReply', offer: offer.id, accept: true });
+        const decline = document.createElement('button'); decline.textContent = 'Rebutjar';
+        decline.onclick = () => send({ t: 'peaceReply', offer: offer.id, accept: false });
+        row.append(label, accept, decline); root.appendChild(row);
+      }
+      for (const [a, b, ticks] of ceasefires) {
+        if (a !== me && b !== me) continue;
+        const other = pm[a === me ? b : a];
+        const label = document.createElement('div');
+        label.textContent = `Alto el foc amb ${other ? other[1] : 'jugador'} · ${Math.ceil(ticks * .2)} s`;
+        root.appendChild(label);
+      }
+      if (!root.childElementCount) root.textContent = 'Cap tracte de pau actiu.';
     }
     const econPanel = $('econ-panel'), econHeader = $('econ-header');
     $('econ-toggle').onclick = () => {
@@ -626,23 +705,17 @@
     $('pct').oninput = () => $('pl').textContent = $('pct').value + '%';
     $('allocation').oninput = () => $('allocation-label').textContent = `${$('allocation').value}%`;
     $('allocation').onchange = () => send({ t: 'allocate', value: $('allocation').value });
-    $('food-allocation').oninput = () => $('food-allocation-label').textContent = `${$('food-allocation').value}% dels civils`;
-    $('food-allocation').onchange = () => send({ t: 'jobs', value: $('food-allocation').value });
     $('expedition-mode').onchange = () => {
       const exact = $('expedition-mode').value === 'exact';
       $('expedition-percent-row').style.display = exact ? 'none' : 'flex';
       $('expedition-exact-row').style.display = exact ? 'flex' : 'none';
     };
     $('expedition-percent').oninput = () => $('expedition-percent-label').textContent = `${$('expedition-percent').value}%`;
-    $('market-good').onchange = () => {
-      const e = economy[me];
-      if (e) $('market-amount').value = e.offers[$('market-good').value];
-    };
-    $('market-list').onclick = () => send({ t: 'marketList', good: $('market-good').value, amount: Number($('market-amount').value) });
-    $('market-buy-amount').oninput = renderMarket;
-    $('direct-buy-amount').oninput = updateEconomicPanel;
-    $('buy-cars').onclick = () => send({ t: 'directBuy', good: 'cars', amount: Number($('direct-buy-amount').value) });
-    $('buy-ships').onclick = () => send({ t: 'directBuy', good: 'ships', amount: Number($('direct-buy-amount').value) });
+    $('ship-request-create').onclick = () => send({
+      t: 'shipRequest',
+      quantity: Number($('ship-request-quantity').value),
+      maxPrice: Number($('ship-request-price').value)
+    });
     const tile = e => [Math.floor((e.clientX - ox) / zoom), Math.floor((e.clientY - oy) / zoom)];
     const send = o => ws.send(JSON.stringify(o));
     const pct = () => gameMode === 'economic' ? Number($('expedition-percent').value) / 100 : Number($('pct').value) / 100;
@@ -670,16 +743,22 @@
         const isAlly = o > NB && allies.has([me, o].sort((a, b) => a - b).join(':'));
         if (gameMode === 'economic' && gameState === 'playing' && o === me && !structures[y * W + x]) {
           const q = pm[me];
-          if (q[6] >= 60 && (!q[8] || q[10] >= q[8] * 1000)) add('Construir ciutat (60 recursos)', () => send({ t: 'build', i: y * W + x, building: 'city' }));
-          if (q[8] > 0 && q[9] < 10 && q[6] >= 120) {
-            add('Fàbrica de cotxes (120)', () => send({ t: 'build', i: y * W + x, building: 'carFactory' }));
-            add('Drassana (120)', () => send({ t: 'build', i: y * W + x, building: 'shipyard' }));
-            add('Fàbrica d’armes (120)', () => send({ t: 'build', i: y * W + x, building: 'armsFactory' }));
+          if (q[6] >= 2500 && (!q[8] || q[10] >= q[8] * 1000)) add('Construir ciutat (2.500 €)', () => send({ t: 'build', i: y * W + x, building: 'city' }));
+          if (q[8] > 0 && q[9] < 10) {
+            if (q[6] >= 4000) add('Construir drassana (4.000 €)', () => send({ t: 'build', i: y * W + x, building: 'shipyard' }));
+            if (q[6] >= 3500) add('Construir fàbrica d’armes (3.500 €)', () => send({ t: 'build', i: y * W + x, building: 'armsFactory' }));
           }
         }
         if (gameState === 'playing' && o > NB && o !== me) {
           [10, 25, 50].forEach(p => add(`Donar ${p}% de tropes`, () => send({ t: 'give', to: o, pct: p / 100 })));
           if (!isAlly) add('Proposar pacte', () => send({ t: 'pact', to: o }));
+        }
+        if (gameMode === 'economic' && gameState === 'playing' && o !== me && o > 0 && o !== 255 &&
+            (threats[me] || []).includes(o)) {
+          add('Oferir pau pagada', () => {
+            const amount = Number(prompt(`Quants euros ofereixes per aturar l’atac de ${pm[o]?.[1] || 'aquest jugador'} durant 120 segons?`));
+            if (Number.isSafeInteger(amount) && amount > 0) send({ t: 'peaceOffer', to: o, amount });
+          });
         }
         if (gameState === 'playing' && o !== me && o !== 255) {
           const label = gameMode === 'economic' ? 'Enviar exèrcit' : `Atacar (${$('pct').value}%)`;
@@ -733,6 +812,10 @@
           }
         }
         for (const b of boats) { ctx.fillStyle = '#fff'; ctx.fillRect(b[0] - 1.5, b[1] - 1.5, 3, 3); ctx.fillStyle = `rgb(${color(b[2], 0)})`; ctx.fillRect(b[0] - 1, b[1] - 1, 2, 2); }
+        for (const march of marches) {
+          ctx.fillStyle = march[3] ? '#fbbf24' : `rgb(${color(march[2], 0)})`;
+          ctx.beginPath(); ctx.arc(march[0], march[1], Math.max(1.5, 3 / zoom), 0, Math.PI * 2); ctx.fill();
+        }
       }
       requestAnimationFrame(loop);
     })();
