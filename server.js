@@ -1,5 +1,14 @@
 const http = require('http'), fs = require('fs'), path = require('path'), { WebSocketServer } = require('ws');
 const W = 384, H = 192, WATER = 255, NB = 20, TICK = 200, D4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const BASE_W = 288, BASE_H = 112;
+const worldMap = new Uint8Array(fs.readFileSync(path.join(__dirname, 'world.bin')));
+if (worldMap.length !== BASE_W * BASE_H) throw new Error('world.bin has an unexpected size');
+const regions = {
+  americas: { x: 0, y: 0, w: 142, h: BASE_H },
+  europe_africa: { x: 72, y: 0, w: 122, h: BASE_H },
+  asia_pacific: { x: 146, y: 0, w: 142, h: BASE_H },
+  world: { x: 0, y: 0, w: BASE_W, h: BASE_H }
+};
 const page = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
 const server = http.createServer((q, r) => { r.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); r.end(page) });
 const wss = new WebSocketServer({ server }), rooms = {};
@@ -20,26 +29,59 @@ function genMap(seed) {
   }
   return m;
 }
-function loadMap() { return genMap(Math.random() * 0x100000000 >>> 0); }
+function loadMap(territory = 'random') {
+  if (territory === 'random') return genMap(Math.random() * 0x100000000 >>> 0);
+  const region = regions[territory] || regions.world;
+  const map = new Uint8Array(W * H).fill(WATER);
+  const scale = Math.min(W / region.w, H / region.h);
+  const drawW = Math.round(region.w * scale), drawH = Math.round(region.h * scale);
+  const offsetX = Math.floor((W - drawW) / 2), offsetY = Math.floor((H - drawH) / 2);
+  for (let y = 0; y < drawH; y++)for (let x = 0; x < drawW; x++) {
+    const sx = region.x + Math.min(region.w - 1, Math.floor(x / scale));
+    const sy = region.y + Math.min(region.h - 1, Math.floor(y / scale));
+    map[(offsetY + y) * W + offsetX + x] = worldMap[sy * BASE_W + sx];
+  }
+  return map;
+}
 function addPlayer(r, name, team, bot) {
   const p = { id: r.players.length, name, team, bot, bal: 100, resources: 100, allocation: 35, population: 0, tiles: 0, alive: false, rate: 0, skill: .5 + Math.random() * .5 };
-  r.players.push(p); return p;
+  r.players.push(p);
+  r.buildings.push({ cities: 0, factories: 0 });
+  r.cityTiles.push(new Set());
+  r.territoryTiles.push(new Set());
+  return p;
 }
-function allBuildingCounts(r) {
-  const counts = new Map();
-  for (let i = 0; i < r.structures.length; i++)if (r.structures[i]) {
-    const id = r.owner[i], count = counts.get(id) || { cities: 0, factories: 0 };
-    if (r.structures[i] === 1) count.cities++;
-    else if (r.structures[i] === 2) count.factories++;
-    counts.set(id, count);
+function reindexRoom(r) {
+  r.buildings = Array.from({ length: r.players.length }, () => ({ cities: 0, factories: 0 }));
+  r.cityTiles = Array.from({ length: r.players.length }, () => new Set());
+  r.territoryTiles = Array.from({ length: r.players.length }, () => new Set());
+  for (let i = 0; i < r.owner.length; i++) {
+    const id = r.owner[i];
+    if (id === WATER) continue;
+    r.territoryTiles[id].add(i);
+    if (r.structures[i]) trackBuilding(r, id, i, r.structures[i], 1);
   }
-  return counts;
 }
 function buildingCounts(r, id) {
-  return allBuildingCounts(r).get(id) || { cities: 0, factories: 0 };
+  return r.buildings[id] || { cities: 0, factories: 0 };
 }
 function combatEfficiency(r, id) {
   return 1 + Math.min(10, buildingCounts(r, id).factories) * .25;
+}
+function trackBuilding(r, id, i, type, delta) {
+  if (!id || !type) return;
+  const counts = r.buildings[id];
+  if (type === 1) {
+    counts.cities += delta;
+    if (delta > 0) r.cityTiles[id].add(i);
+    else r.cityTiles[id].delete(i);
+  } else counts.factories += delta;
+}
+function setStructure(r, id, i, type) {
+  r.structures[i] = type;
+  r.cityPopulation[i] = 0;
+  trackBuilding(r, id, i, type, 1);
+  send(r, { t: 'building', i, type });
 }
 function buildStructure(r, p, i, type) {
   if (i < 0 || i >= W * H || r.owner[i] !== p.id || r.structures[i]) return false;
@@ -49,27 +91,30 @@ function buildStructure(r, p, i, type) {
   if (type === 'city' && counts.cities && p.population < counts.cities * 1000) return false;
   if (type === 'factory' && (!counts.cities || counts.factories >= 10)) return false;
   p.resources -= cost;
-  r.structures[i] = type === 'city' ? 1 : 2;
-  r.cityPopulation[i] = 0;
-  send(r, { t: 'building', i, type: r.structures[i] });
+  setStructure(r, p.id, i, type === 'city' ? 1 : 2);
   status(r);
   return true;
 }
 function pair(a, b) { return a < b ? `${a}:${b}` : `${b}:${a}`; }
 function allied(r, a, b) { return r.pacts.has(pair(a, b)); }
 function status(r) {
-  const counts = allBuildingCounts(r);
   send(r, {
     t: 's', p: r.players.slice(1).map(p => {
-      const { cities, factories } = counts.get(p.id) || { cities: 0, factories: 0 };
+      const { cities, factories } = buildingCounts(r, p.id);
       return [p.id, p.name, p.tiles, Math.floor(p.bal), p.alive, p.rate, Math.floor(p.resources), p.allocation, cities, factories,
-        Math.floor(p.population), 1 + Math.min(10, factories) * .25, Math.floor(p.population * (100 - p.allocation) / 100)];
+      Math.floor(p.population), 1 + Math.min(10, factories) * .25, Math.floor(p.population * (100 - p.allocation) / 100)];
     }),
     state: r.state, host: r.host, winner: r.winner, mode: r.mode, allies: [...r.pacts].map(k => k.split(':').map(Number))
   });
 }
 function set(r, i, id) {
   const o = r.owner[i];
+  const structure = r.structures[i];
+  const ownershipChange = o && o !== WATER && o !== id && structure;
+  if (ownershipChange) {
+    trackBuilding(r, o, i, structure, -1);
+    if (id) trackBuilding(r, id, i, structure, 1);
+  }
   if (o && o !== WATER && o !== id && r.structures[i] === 1) {
     const residents = r.cityPopulation[i];
     r.players[o].population = Math.max(0, r.players[o].population - residents);
@@ -77,12 +122,18 @@ function set(r, i, id) {
     if (id) r.players[id].population += residents;
   }
   if (o && o !== WATER) r.players[o].tiles--;
+  if (r.territoryTiles[o]) r.territoryTiles[o].delete(i);
   r.owner[i] = id;
-  if (id) r.players[id].tiles++;
-  else if (r.structures[i]) {
-    r.structures[i] = 0;
-    r.cityPopulation[i] = 0;
-    send(r, { t: 'building', i, type: 0 });
+  if (id) {
+    r.players[id].tiles++;
+    r.territoryTiles[id].add(i);
+  } else {
+    r.territoryTiles[0].add(i);
+    if (r.structures[i]) {
+      r.structures[i] = 0;
+      r.cityPopulation[i] = 0;
+      send(r, { t: 'building', i, type: 0 });
+    }
   }
   r.ch.push(i, id);
 }
@@ -96,18 +147,17 @@ function spawn(r, p, x, y) {
     p.population = 600;
     p.allocation = p.bot ? 40 + Math.round(p.skill * 25) : 35;
     p.resources = 100;
-    r.structures[y * W + x] = 1;
-    r.cityPopulation[y * W + x] = 600;
-    send(r, { t: 'building', i: y * W + x, type: 1 });
+    setStructure(r, p.id, y * W + x, 1);
   }
   return true;
 }
-function newRoom(code, mode = 'classic') {
+function newRoom(code, mode = 'classic', territory = 'random') {
   const r = {
-    code, owner: loadMap(), structures: new Uint8Array(W * H), cityPopulation: new Float32Array(W * H), mode, players: [null], attacks: [], boats: [], ch: [], clients: new Set(), land: 0, t: 0,
+    code, owner: loadMap(territory), structures: new Uint8Array(W * H), cityPopulation: new Float32Array(W * H), mode, territory, players: [null], buildings: [null], cityTiles: [null], territoryTiles: [new Set()], attacks: [], boats: [], ch: [], clients: new Set(), land: 0, t: 0,
     state: 'lobby', host: 0, winner: 0, pacts: new Set(), pactRequests: new Set()
   };
-  for (const v of r.owner) if (v === 0) r.land++;
+  for (let i = 0; i < r.owner.length; i++)if (r.owner[i] === 0) { r.land++; r.territoryTiles[0].add(i); }
+  reindexRoom(r);
   for (let i = 1; i <= NB; i++) {
     const p = addPlayer(r, 'Bot ' + i, i, true);
     for (let k = 0; k < 300 && !p.alive; k++)spawn(r, p, Math.random() * W | 0, Math.random() * H | 0);
@@ -122,7 +172,7 @@ function attack(r, p, tx, ty, pct, betray = false) {
   if (betraying && !betray) return;
   let at = r.attacks.find(a => a.a === p.id && a.t === t && !a.done);
   const fr = at ? at.fr : new Set();
-  for (let k = 0; k < W * H; k++)if (O[k] === t) {
+  for (const k of r.territoryTiles[t]) {
     const x = k % W, y = (k / W) | 0;
     for (const [dx, dy] of D4) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < W && ny < H && O[ny * W + nx] === p.id) { fr.add(k); break; } }
   }
@@ -166,7 +216,7 @@ function boat(r, p, tx, ty, pct, betray = false) {
   const previousStart = new Int32Array(size); previousStart.fill(-1);
   const previous = new Int32Array(size); previous.fill(-2);
   const queue = new Int32Array(size); let head = 0, tail = 0;
-  for (let i = 0; i < size; i++)if (O[i] === p.id) {
+  for (const i of r.territoryTiles[p.id]) {
     const x = i % W, y = (i / W) | 0;
     for (const [dx, dy] of D4) {
       const nx = x + dx, ny = y + dy;
@@ -216,10 +266,10 @@ function runBoats(r) {
 function runAttacks(r) {
   const O = r.owner, P = r.players;
   for (const at of r.attacks) {
-    const A=P[at.a],D=at.t?P[at.t]:null;
-    if(allied(r,at.a,at.t)){if(A.alive)A.bal+=at.troops;at.done=true;continue;}
+    const A = P[at.a], D = at.t ? P[at.t] : null;
+    if (allied(r, at.a, at.t)) { if (A.alive) A.bal += at.troops; at.done = true; continue; }
     const attackEfficiency = at.efficiency || combatEfficiency(r, at.a);
-    let n=Math.min(at.fr.size,Math.ceil((3+Math.floor(Math.sqrt(at.troops)/2))*attackEfficiency));
+    let n = Math.min(at.fr.size, Math.ceil((3 + Math.floor(Math.sqrt(at.troops) / 2)) * attackEfficiency));
     for (const i of at.fr) {
       if (n-- <= 0) break; at.fr.delete(i); if (O[i] !== at.t) continue;
       const dens = D ? D.bal / Math.max(D.tiles, 1) : 0;
@@ -265,8 +315,8 @@ function botEconomicThink(r, b) {
   if (counts.cities && b.population >= counts.cities * 1000 && b.resources >= 60) building = 'city';
   else if (counts.factories < Math.min(10, Math.max(1, counts.cities * 2)) && b.resources >= 120) building = 'factory';
   if (!building) return;
-  for (let i = 0; i < W * H; i++) {
-    if (r.owner[i] === b.id && !r.structures[i] && buildStructure(r, b, i, building)) return;
+  for (const i of r.territoryTiles[b.id]) {
+    if (!r.structures[i] && buildStructure(r, b, i, building)) return;
   }
 }
 function send(r, o) { const s = JSON.stringify(o); for (const c of r.clients) if (c.readyState === 1) c.send(s); }
@@ -278,16 +328,15 @@ function tick(r) {
     const alive = r.players.slice(1).filter(p => p.alive);
     if (alive.length <= 1) { r.state = 'over'; r.winner = alive.length ? alive[0].id : 0; r.attacks = []; r.boats = []; }
     if (r.t % 5 === 0) {
-      const counts = r.mode === 'economic' ? allBuildingCounts(r) : null;
       for (const p of r.players) {
         if (!p || !p.alive) continue;
         if (r.mode === 'economic') {
-          const { cities, factories } = counts.get(p.id) || { cities: 0, factories: 0 };
+          const { factories } = buildingCounts(r, p.id);
           const workers = p.population * (100 - p.allocation) / 100;
           const soldiers = p.population * p.allocation / 100;
           let growth = workers * .015;
-          for (let i = 0; i < r.cityPopulation.length && growth > 0; i++) {
-            if (r.owner[i] !== p.id || r.structures[i] !== 1) continue;
+          for (const i of r.cityTiles[p.id]) {
+            if (growth <= 0) break;
             const added = Math.min(growth, 1000 - r.cityPopulation[i]);
             r.cityPopulation[i] += added;
             p.population += added;
@@ -328,10 +377,16 @@ wss.on('connection', ws => {
     if (d.t === 'join' && !r) {
       const code = String(d.room || '').toUpperCase().slice(0, 4);
       if (code && !rooms[code]) return ws.send(JSON.stringify({ t: 'err', m: 'Aquesta sala no existeix' }));
-      const room = code ? rooms[code] : newRoom(
-        Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random() * 24 | 0]).join(''),
-        d.mode === 'economic' ? 'economic' : 'classic'
-      );
+      let room;
+      if (code) room = rooms[code];
+      else {
+        let newCode;
+        do {
+          newCode = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random() * 24 | 0]).join('');
+        } while (rooms[newCode]);
+        const territory = Object.hasOwn(regions, d.territory) || d.territory === 'random' ? d.territory : 'random';
+        room = newRoom(newCode, d.mode === 'economic' ? 'economic' : 'classic', territory);
+      }
       if (room.clients.size >= 4) return ws.send(JSON.stringify({ t: 'err', m: 'Sala plena' }));
       if (room.state !== 'lobby') return ws.send(JSON.stringify({ t: 'err', m: 'La partida ja ha començat' }));
       r = room; p = addPlayer(r, String(d.name || 'Jugador').slice(0, 16), 0, false); r.clients.add(ws);
@@ -339,7 +394,7 @@ wss.on('connection', ws => {
       if (!r.host) r.host = p.id;
       ws.send(JSON.stringify({
         t: 'init', code: r.code, w: W, h: H, nb: NB, me: p.id, land: r.land, owner: Buffer.from(r.owner).toString('base64'),
-        structures: Buffer.from(r.structures).toString('base64'), state: r.state, host: r.host, mode: r.mode
+        structures: Buffer.from(r.structures).toString('base64'), state: r.state, host: r.host, mode: r.mode, territory: r.territory
       }));
       status(r);
     } else if (r && d.t === 'spawn' && !p.alive) spawn(r, p, d.x | 0, d.y | 0);
@@ -352,9 +407,10 @@ wss.on('connection', ws => {
       buildStructure(r, p, Number(d.i) | 0, d.building);
     }
     else if (r && d.t === 'restart' && p.id === r.host && r.state === 'over') {
-      r.owner = loadMap(); r.structures = new Uint8Array(W * H); r.cityPopulation = new Float32Array(W * H); r.attacks = []; r.boats = []; r.ch = []; r.t = 0; r.winner = 0; r.state = 'lobby'; r.pacts.clear(); r.pactRequests.clear();
+      r.owner = loadMap(r.territory); r.structures = new Uint8Array(W * H); r.cityPopulation = new Float32Array(W * H); r.attacks = []; r.boats = []; r.ch = []; r.t = 0; r.winner = 0; r.state = 'lobby'; r.pacts.clear(); r.pactRequests.clear();
       for (const player of r.players.slice(1)) { player.tiles = 0; player.alive = false; player.bal = 100; player.resources = 100; player.allocation = 35; player.population = 0; player.rate = 0; }
       r.land = 0; for (const v of r.owner) if (v === 0) r.land++;
+      reindexRoom(r);
       for (const bot of r.players.slice(1).filter(player => player.bot)) {
         for (let k = 0; k < 300 && !bot.alive; k++)spawn(r, bot, Math.random() * W | 0, Math.random() * H | 0);
       }
@@ -364,7 +420,8 @@ wss.on('connection', ws => {
     else if (r && d.t === 'pact' && r.state === 'playing') {
       const o = r.players[d.to | 0], key = `${p.id}:${d.to | 0}`;
       if (o && !o.bot && o !== p && o.alive && p.alive && !allied(r, p.id, o.id)) {
-        r.pactRequests.add(key); for (const c of r.clients) if (c.playerId === o.id) c.send(JSON.stringify({ t: 'pactRequest', from: p.id, name: p.name }));
+        r.pactRequests.add(key);
+        for (const c of r.clients) if (c.playerId === o.id && c.readyState === 1) c.send(JSON.stringify({ t: 'pactRequest', from: p.id, name: p.name }));
       }
     } else if (r && d.t === 'pactReply' && r.state === 'playing') {
       const from = d.from | 0, key = `${from}:${p.id}`;

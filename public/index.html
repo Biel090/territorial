@@ -143,6 +143,13 @@
       <option value="classic">Mode clàssic</option>
       <option value="economic">Mode econòmic: ciutats i fàbriques</option>
     </select>
+    <select id="territory">
+      <option value="random">Territori aleatori</option>
+      <option value="americas">Amèriques</option>
+      <option value="europe_africa">Europa i Àfrica</option>
+      <option value="asia_pacific">Àsia i Oceania</option>
+      <option value="world">Món sencer</option>
+    </select>
     <button id="go">Entrar</button>
   </div>
   <div class="h" id="top"></div>
@@ -155,8 +162,10 @@
       <input id="pct" type="range" min="1" max="100" value="35">
       <span id="pl">35%</span>
     </span>
-    <label id="allocation-wrap" style="display:none" for="allocation" title="Destina habitants a l'exèrcit; la resta treballa i produeix recursos">Població a l’exèrcit</label>
-    <input id="allocation" type="range" min="0" max="100" step="5" value="35" style="display:none" title="A 100%, tots els habitants s'assignen a l'exèrcit; a 0%, tota la població treballa i produeix">
+    <label id="allocation-wrap" style="display:none" for="allocation"
+      title="Destina habitants a l'exèrcit; la resta treballa i produeix recursos">Població a l’exèrcit</label>
+    <input id="allocation" type="range" min="0" max="100" step="5" value="35" style="display:none"
+      title="A 100%, tots els habitants s'assignen a l'exèrcit; a 0%, tota la població treballa i produeix">
     <span id="allocation-label" style="display:none">35% exèrcit</span>
     <button id="start" style="display:none">Començar Partida</button>
     <button id="restart" style="display:none">Reiniciar Partida</button>
@@ -176,10 +185,20 @@
     function color(id, i) { if (id === 255) return [14, 40, 72]; if (!id) return (i / W | 0) < H * .1 ? [205, 215, 222] : [62, 98, 66]; if (id <= NB) return hsl(id * 47 % 360); return id === me ? [59, 130, 246] : [34, 211, 238] }
     function paint(i) { const c = color(owner[i], i), d = img.data; d[4 * i] = c[0]; d[4 * i + 1] = c[1]; d[4 * i + 2] = c[2]; d[4 * i + 3] = 255; }
     $('name').value = localStorage.nom || '';
+    $('room').oninput = () => {
+      $('mode').disabled = !!$('room').value;
+      $('territory').disabled = !!$('room').value;
+    };
     $('go').onclick = () => {
       localStorage.nom = $('name').value;
       ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
-      ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: $('name').value || 'Jugador', room: $('room').value, mode: $('mode').value }));
+      ws.onopen = () => ws.send(JSON.stringify({
+        t: 'join',
+        name: $('name').value || 'Jugador',
+        room: $('room').value,
+        mode: $('mode').value,
+        territory: $('territory').value
+      }));
       ws.onmessage = e => {
         const m = JSON.parse(e.data);
         if (m.t === 'err') alert(m.m);
@@ -193,6 +212,7 @@
           $('menu').style.display = 'none';
           $('roomcode').textContent = 'Codi de sala: ' + m.code;
           $('code').textContent = 'Sala: ' + m.code + ' (passa-li el codi al teu amic)';
+          $('territory').value = m.territory;
           updateControls();
         }
         else if (m.t === 'reset') { owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0)); structures = Uint8Array.from(atob(m.structures), c => c.charCodeAt(0)); rebuildStructureList(); boats = []; for (let i = 0; i < W * H; i++) paint(i); dirty = true; gameState = 'lobby'; winner = 0; allies.clear(); updateControls(); }
@@ -221,6 +241,7 @@
       $('allocation').style.display = gameMode === 'economic' ? 'inline-block' : 'none';
       $('allocation-label').style.display = gameMode === 'economic' ? 'inline' : 'none';
       $('mode').disabled = !!$('room').value;
+      $('territory').disabled = !!$('room').value;
       $('gamestate').textContent = gameState === 'lobby' ? 'Sala d’espera' : gameState === 'playing' ? 'Partida en marxa' : winner ? `${pm[winner]?.[1] || 'Jugador'} ha guanyat` : 'Partida acabada';
     }
     function stats(p) {
@@ -270,16 +291,16 @@
           if (q[6] >= 60 && (!q[8] || q[10] >= q[8] * 1000)) add('Construir ciutat (60 recursos)', () => send({ t: 'build', i: y * W + x, building: 'city' }));
           if (q[8] > 0 && q[9] < 10 && q[6] >= 120) add('Construir fàbrica (120 recursos)', () => send({ t: 'build', i: y * W + x, building: 'factory' }));
         }
-        if (o > NB && o !== me) {
+        if (gameState === 'playing' && o > NB && o !== me) {
           [10, 25, 50].forEach(p => add(`Donar ${p}% de tropes`, () => send({ t: 'give', to: o, pct: p / 100 })));
-          if (gameState === 'playing' && !isAlly) add('Proposar pacte', () => send({ t: 'pact', to: o }));
+          if (!isAlly) add('Proposar pacte', () => send({ t: 'pact', to: o }));
         }
-        if (o !== me && o !== 255) {
+        if (gameState === 'playing' && o !== me && o !== 255) {
           const label = gameMode === 'economic' ? 'Enviar exèrcit' : `Atacar (${$('pct').value}%)`;
           if (isAlly) add(`Trair pacte i ${label.toLowerCase()}`, () => send({ t: 'atk', x, y, pct: pct(), betray: true }));
           else add(label, () => send({ t: 'atk', x, y, pct: pct() }));
         }
-        if (o !== me) {
+        if (gameState === 'playing' && o !== me) {
           const label = gameMode === 'economic' ? 'Enviar exèrcit per mar' : `Enviar vaixell (${$('pct').value}%)`;
           if (isAlly) add(`Trair pacte i ${label.toLowerCase()}`, () => send({ t: 'boat', x, y, pct: pct(), betray: true }));
           else add(label, () => send({ t: 'boat', x, y, pct: pct() }));
@@ -299,7 +320,10 @@
       if (!drag) return; drag = null; if (moved > 6 || !ws || !owner || e.target !== cv) return;
       const [x, y] = tile(e);
       if (e.button === 2) menu(e, x, y);
-      else if (e.button === 0) send(alive() ? { t: 'atk', x, y, pct: pct() } : { t: 'spawn', x, y });
+      else if (e.button === 0) {
+        if (!alive()) send({ t: 'spawn', x, y });
+        else if (gameState === 'playing') send({ t: 'atk', x, y, pct: pct() });
+      }
     };
     cv.oncontextmenu = e => e.preventDefault();
     onkeydown = e => { if (e.key === 'Escape') $('cm').style.display = 'none'; };
