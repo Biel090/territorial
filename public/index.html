@@ -579,7 +579,8 @@
       inventory.replaceChildren();
       for (const [label, value, rate] of [
         ['Diners', `${Math.floor(e.money).toLocaleString('ca-ES')} €`, `+${e.incomeRate.toFixed(1)} €/s`],
-        ['Vaixells', e.ships, `+${e.shipRate.toFixed(2)}/s`]
+        ['Vaixells', e.ships, `+${e.shipRate.toFixed(2)}/s`],
+        ['Bancs', e.banks, `${e.staffedBanks} amb 100 civils`]
       ]) {
         const metric = document.createElement('div');
         metric.className = 'econ-metric';
@@ -593,7 +594,7 @@
         inventory.appendChild(metric);
       }
       $('econ-production').textContent = `Reclutament +${e.recruitmentRate.toFixed(1)}/s · Capacitat ${Math.floor(e.armyCapacity)} · Eficàcia ${e.combatEfficiency.toFixed(1)}x`;
-      $('inventory-info').title = `Els civils generen ${e.incomeRate.toFixed(1)} €/s. Cada fàbrica d’armes augmenta un 10% l’eficàcia d’atac i defensa (màxim +100%). Drassanes: ${e.shipyards} · fàbriques d’armes: ${e.armsFactories}.`;
+      $('inventory-info').title = `Ingressos totals: ${e.incomeRate.toFixed(1)} €/s, incloent ${e.staffedBanks} bancs actius de ${e.banks}. Cada banc requereix 100 civils i genera 25 €/s. Cada fàbrica d’armes augmenta un 10% l’eficàcia d’atac i defensa (màxim +100%). Drassanes: ${e.shipyards} · fàbriques d’armes: ${e.armsFactories}.`;
       renderShipRequests();
       renderPeace();
     }
@@ -771,7 +772,8 @@
           if (q[6] >= 2500 && (!q[8] || q[10] >= q[8] * 1000)) add('Construir ciutat (2.500 €)', () => send({ t: 'build', i: y * W + x, building: 'city' }));
           { const ec = economy[me] || {};
             if (q[8] > 0 && q[6] >= 6000 && (ec.silos || 0) < 3) add('Construir sitja de míssils (6.000 €)', () => send({ t: 'build', i: y * W + x, building: 'silo' }));
-            if (q[8] > 0 && q[6] >= 5000 && (ec.radars || 0) < 3) add('Construir radar antimíssils (5.000 €)', () => send({ t: 'build', i: y * W + x, building: 'radar' })); }
+            if (q[8] > 0 && q[6] >= 5000 && (ec.radars || 0) < 3) add('Construir radar antimíssils (5.000 €)', () => send({ t: 'build', i: y * W + x, building: 'radar' }));
+            if (q[8] > 0 && q[6] >= 3000 && (ec.banks || 0) < 5) add('Construir banc (3.000 €)', () => send({ t: 'build', i: y * W + x, building: 'bank' })); }
           if (q[8] > 0 && q[9] < 10) {
             if (q[6] >= 4000) add('Construir drassana (4.000 €)', () => send({ t: 'build', i: y * W + x, building: 'shipyard' }));
             if (q[6] >= 3500) add('Construir fàbrica d’armes (3.500 €)', () => send({ t: 'build', i: y * W + x, building: 'armsFactory' }));
@@ -839,7 +841,7 @@
         const buildingSize = Math.max(.8, 2 / zoom);
         for (const [i, type] of structureList) {
           const x = i % W, y = (i / W) | 0;
-          ctx.fillStyle = type === 1 ? '#fbbf24' : type === 2 ? '#22d3ee' : type === 3 ? '#60a5fa' : type === 5 ? '#e879f9' : type === 6 ? '#4ade80' : '#f87171';
+          ctx.fillStyle = type === 1 ? '#fbbf24' : type === 2 ? '#22d3ee' : type === 3 ? '#60a5fa' : type === 5 ? '#e879f9' : type === 6 ? '#4ade80' : type === 7 ? '#34d399' : '#f87171';
           ctx.fillRect(x - buildingSize / 2, y - buildingSize / 2, buildingSize, buildingSize);
           if (type > 1) {
             ctx.fillStyle = '#475569';

@@ -88,6 +88,58 @@ test('city, shipyard, and arms factory investments charge euros and track buildi
   assert.equal(game.buildStructure(room, player, claim(room, player, 22, 20), 'carFactory'), false);
 });
 
+test('banks require a city, cost 3,000 euros, are economic-only, and cap at five', () => {
+  const room = makeRoom(), player = addTestPlayer(room, 'A');
+  player.money = 20000;
+  const firstBank = claim(room, player, 20, 20);
+  assert.equal(game.buildStructure(room, player, firstBank, 'bank'), false);
+
+  room.buildings[player.id].cities = 1;
+  assert.equal(game.buildStructure(room, player, firstBank, 'bank'), true);
+  assert.equal(player.money, 17000);
+  for (let i = 1; i < 5; i++) {
+    assert.equal(game.buildStructure(room, player, claim(room, player, 20 + i, 20), 'bank'), true);
+  }
+  assert.equal(game.buildingCounts(room, player.id).banks, 5);
+  assert.equal(game.buildStructure(room, player, claim(room, player, 25, 20), 'bank'), false);
+
+  const classic = makeRoom('classic'), classicPlayer = addTestPlayer(classic, 'Classic');
+  classic.buildings[classicPlayer.id].cities = 1;
+  assert.equal(game.buildStructure(classic, classicPlayer, claim(classic, classicPlayer, 20, 20), 'bank'), false);
+});
+
+test('each bank needs 100 civilians for its full 25-euro income', () => {
+  const room = makeRoom(), player = addTestPlayer(room, 'A');
+  room.buildings[player.id] = { cities: 1, shipyards: 0, armsFactories: 0, banks: 2 };
+  player.population = 198;
+  player.allocation = 50;
+  let economy = game.economyStatus(room, player);
+  assert.equal(economy.banks, 2);
+  assert.equal(economy.staffedBanks, 0);
+  assert.equal(economy.incomeRate, 2.475);
+
+  player.population = 200;
+  economy = game.economyStatus(room, player);
+  assert.equal(economy.staffedBanks, 1);
+  assert.equal(economy.incomeRate, 27.5);
+  game.processEconomicPlayer(room, player);
+  assert.equal(player.money, 10027.5);
+});
+
+test('economic bots build banks when they can fully staff them', () => {
+  const room = makeRoom(), bot = addTestPlayer(room, 'Bot', 1, true);
+  bot.skill = 0.5;
+  bot.money = 3000;
+  bot.population = 600;
+  room.buildings[bot.id].cities = 1;
+  claim(room, bot, 20, 20);
+
+  game.botEconomicThink(room, bot);
+
+  assert.equal(game.buildingCounts(room, bot.id).banks, 1);
+  assert.equal(bot.money, 0);
+});
+
 test('arms factories increase combat effectiveness while classic mode stays unchanged', () => {
   const room = makeRoom(), player = addTestPlayer(room, 'A');
   room.buildings[player.id].armsFactories = 2;

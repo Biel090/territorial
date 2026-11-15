@@ -1,9 +1,10 @@
 const http = require('http'), fs = require('fs'), path = require('path'), { WebSocketServer } = require('ws');
 const W = 384, H = 192, WATER = 255, NB = 20, TICK = 200, D4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-const STRUCTURE = Object.freeze({ city: 1, shipyard: 3, armsFactory: 4, silo: 5, radar: 6 });
+const STRUCTURE = Object.freeze({ city: 1, shipyard: 3, armsFactory: 4, silo: 5, radar: 6, bank: 7 });
 const NUKE = { radius: 6, contam: 300, silo: 6000, radar: 5000, cost: 8000, intercept: 2000, radarRange: 35, cooldown: 150, classicCooldown: 300, classicTroops: .5, speed: 4 }, WIN_SHARE = .9;
 const STARTING_MONEY = 10000, CIVILIAN_INCOME_RATE = .025, ARMS_FACTORY_RATE = 10, SHIPYARD_INTERVAL = 10;
 const CITY_COST = 2500, SHIPYARD_COST = 4000, ARMS_FACTORY_COST = 3500;
+const BANK_COST = 3000, BANK_INCOME_RATE = 25, BANK_WORKERS = 100, BANK_LIMIT = 5;
 const SHIP_PRICE = 1500, SOLDIERS_PER_SHIP = 100, PEACE_DURATION = 600, MARCHES_PER_TICK = 2;
 const BASE_W = 288, BASE_H = 112;
 const worldMap = new Uint8Array(fs.readFileSync(path.join(__dirname, 'world.bin')));
@@ -55,13 +56,13 @@ function addPlayer(r, name, team, bot) {
     ships: 0, shipProgress: 0, nukeReady: 0, skill: .5 + Math.random() * .5
   };
   r.players.push(p);
-  r.buildings.push({ cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0 });
+  r.buildings.push({ cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0, banks: 0 });
   r.cityTiles.push(new Set());
   r.territoryTiles.push(new Set());
   return p;
 }
 function reindexRoom(r) {
-  r.buildings = Array.from({ length: r.players.length }, () => ({ cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0 }));
+  r.buildings = Array.from({ length: r.players.length }, () => ({ cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0, banks: 0 }));
   r.cityTiles = Array.from({ length: r.players.length }, () => new Set());
   r.territoryTiles = Array.from({ length: r.players.length }, () => new Set());
   for (let i = 0; i < r.owner.length; i++) {
@@ -72,7 +73,7 @@ function reindexRoom(r) {
   }
 }
 function buildingCounts(r, id) {
-  return r.buildings[id] || { cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0 };
+  return r.buildings[id] || { cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0, banks: 0 };
 }
 function factoryCount(counts) { return counts.shipyards + counts.armsFactories; }
 function combatEfficiency(r, id) {
@@ -89,9 +90,10 @@ function economicWorkforce(p, counts) {
   const civilians = p.population * (100 - p.allocation) / 100;
   const productionWorkers = civilians;
   const shipWorkers = counts.shipyards ? productionWorkers : 0;
+  const staffedBanks = Math.min(counts.banks || 0, Math.floor(civilians / BANK_WORKERS));
   return {
-    civilians, productionWorkers, shipWorkers,
-    incomeRate: civilians * CIVILIAN_INCOME_RATE,
+    civilians, productionWorkers, shipWorkers, staffedBanks,
+    incomeRate: civilians * CIVILIAN_INCOME_RATE + staffedBanks * BANK_INCOME_RATE,
     shipRate: counts.shipyards ? Math.min(counts.shipyards, shipWorkers / 100) / SHIPYARD_INTERVAL : 0
   };
 }
@@ -106,6 +108,7 @@ function economyStatus(r, p) {
     armyCapacity: armyCapacity(p),
     combatEfficiency: combatEfficiency(r, p.id),
     shipyards: counts.shipyards, armsFactories: counts.armsFactories, silos: counts.silos, radars: counts.radars,
+    banks: counts.banks || 0, staffedBanks: workforce.staffedBanks,
   };
 }
 function trackBuilding(r, id, i, type, delta) {
@@ -119,6 +122,7 @@ function trackBuilding(r, id, i, type, delta) {
   else if (type === STRUCTURE.armsFactory) counts.armsFactories += delta;
   else if (type === STRUCTURE.silo) counts.silos += delta;
   else if (type === STRUCTURE.radar) counts.radars += delta;
+  else if (type === STRUCTURE.bank) counts.banks += delta;
 }
 function setStructure(r, id, i, type) {
   r.structures[i] = type;
@@ -130,10 +134,11 @@ function buildStructure(r, p, i, type) {
   if (i < 0 || i >= W * H || r.owner[i] !== p.id || r.structures[i]) return false;
   const counts = buildingCounts(r, p.id);
   const structure = STRUCTURE[type];
-  const cost = type === 'city' ? CITY_COST : type === 'shipyard' ? SHIPYARD_COST : type === 'armsFactory' ? ARMS_FACTORY_COST : type === 'silo' ? NUKE.silo : type === 'radar' ? NUKE.radar : 0;
+  const cost = type === 'city' ? CITY_COST : type === 'shipyard' ? SHIPYARD_COST : type === 'armsFactory' ? ARMS_FACTORY_COST : type === 'silo' ? NUKE.silo : type === 'radar' ? NUKE.radar : type === 'bank' ? BANK_COST : 0;
   if (!cost || p.money < cost) return false;
   if (type === 'city' && counts.cities && p.population < counts.cities * 1000) return false;
-  if (type === 'silo' || type === 'radar') { if (!counts.cities || (type === 'silo' ? counts.silos : counts.radars) >= 3) return false; }
+  if (type === 'bank') { if (r.mode !== 'economic' || !counts.cities || counts.banks >= BANK_LIMIT) return false; }
+  else if (type === 'silo' || type === 'radar') { if (!counts.cities || (type === 'silo' ? counts.silos : counts.radars) >= 3) return false; }
   else if (structure !== STRUCTURE.city && (!counts.cities || factoryCount(counts) >= 10)) return false;
   p.money -= cost;
   setStructure(r, p.id, i, structure);
@@ -678,6 +683,8 @@ function botEconomicThink(r, b) {
   if (b.skill >= .9 && counts.silos && b.money < NUKE.cost + 1000) return;
   if (counts.cities && b.population >= counts.cities * 1000 && b.money >= CITY_COST) building = 'city';
   else if (b.skill >= .9 && counts.cities && !counts.silos && factoryCount(counts) >= 1) { if (b.money >= NUKE.silo) building = 'silo'; }
+  else if (counts.cities && counts.banks < BANK_LIMIT &&
+    Math.floor(b.population * (100 - b.allocation) / 100 / BANK_WORKERS) > counts.banks && b.money >= BANK_COST) building = 'bank';
   else if (factoryCount(counts) < 10 && b.money >= Math.min(SHIPYARD_COST, ARMS_FACTORY_COST)) {
     if (!counts.armsFactories) building = 'armsFactory';
     else if (!counts.shipyards) building = 'shipyard';
@@ -1008,5 +1015,5 @@ module.exports = {
   W, H, WATER, STRUCTURE, STARTING_MONEY, CIVILIAN_INCOME_RATE, SHIP_PRICE, PEACE_DURATION, addPlayer, spawn, buildingCounts,
   armyCapacity, populationGrowthRate, economicWorkforce, economyStatus, combatEfficiency, buildStructure, processEconomicPlayer,
   createShipRequest, createShipOffer, acceptShipOffer, orderMarch, findMarchPath, runMarches,
-  runAttacks, nukeLaunch, runMissiles, NUKE, proposePeace, acceptPeaceOffer, incomingArmy, botMarketThink, attack, boat
+  runAttacks, nukeLaunch, runMissiles, NUKE, proposePeace, acceptPeaceOffer, incomingArmy, botMarketThink, botEconomicThink, attack, boat
 };
