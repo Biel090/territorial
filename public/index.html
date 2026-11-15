@@ -88,6 +88,8 @@
       white-space: nowrap
     }
 
+    #toast { position: fixed; left: 50%; top: 60px; transform: translateX(-50%); background: #000c; padding: 8px 14px; border-radius: 8px; display: none; z-index: 6 }
+
     #bot {
       left: 50%;
       bottom: 10px;
@@ -436,12 +438,16 @@
     <div id="hint"></div>
     <div id="code"></div>
   </div>
+  <div id="toast"></div>
   <div id="cm"></div>
   <div id="card"></div>
   <script>
     const $ = id => document.getElementById(id);
     let ws, W, H, NB, me, owner, structures, structureList = [], gameMode = 'classic', off, octx, img, land = 1, zoom = 3, ox = 0, oy = 0, dirty = false, pm = {}, economy = {}, shipRequests = [], peaceOffers = [], marches = [], threats = {}, ceasefires = [], boats = [], gameState = 'lobby', host = 0, winner = 0, allies = new Set();
     const cv = $('c'), ctx = cv.getContext('2d');
+    let missiles = [], blasts = [], nukeCd = {};
+    function toast(m) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = 'none', 4000); }
+    function onNuke(m) { const n = performance.now(); toast(m.intercepted ? 'Míssil interceptat!' : 'Impacte nuclear!'); blasts.push({ x: m.x, y: m.y, r: m.r || 6, t0: n, until: n + (m.ms || 1500), hit: !m.intercepted }); }
     function resize() { cv.width = innerWidth; cv.height = innerHeight } onresize = resize; resize();
     function hsl(h) { const s = .6, l = .5, a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))) }; return [f(0), f(8), f(4)] }
     function color(id, i) { if (id === 255) return [14, 40, 72]; if (!id) return (i / W | 0) < H * .1 ? [205, 215, 222] : [62, 98, 66]; if (id <= NB) return hsl(id * 47 % 360); return id === me ? [59, 130, 246] : [34, 211, 238] }
@@ -479,7 +485,7 @@
           $('territory').value = m.territory;
           updateControls();
         }
-        else if (m.t === 'reset') { owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0)); structures = Uint8Array.from(atob(m.structures), c => c.charCodeAt(0)); rebuildStructureList(); boats = []; marches = []; shipRequests = []; peaceOffers = []; ceasefires = []; threats = {}; for (let i = 0; i < W * H; i++) paint(i); dirty = true; gameState = 'lobby'; winner = 0; allies.clear(); updateControls(); }
+        else if (m.t === 'reset') { owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0)); structures = Uint8Array.from(atob(m.structures), c => c.charCodeAt(0)); rebuildStructureList(); missiles = []; blasts = []; boats = []; marches = []; shipRequests = []; peaceOffers = []; ceasefires = []; threats = {}; for (let i = 0; i < W * H; i++) paint(i); dirty = true; gameState = 'lobby'; winner = 0; allies.clear(); updateControls(); }
         else if (m.t === 'd') { for (let k = 0; k < m.c.length; k += 2) { owner[m.c[k]] = m.c[k + 1]; paint(m.c[k]); } dirty = true; }
         else if (m.t === 'building') {
           structures[m.i] = m.type;
@@ -487,13 +493,16 @@
           if (m.type) structureList.push([m.i, m.type]);
         }
         else if (m.t === 'b') boats = m.b;
+        else if (m.t === 'mi') missiles = m.m;
+        else if (m.t === 'nuke') onNuke(m);
+        else if (m.t === 'toast') toast(m.m);
         else if (m.t === 's') {
           gameState = m.state; host = m.host; winner = m.winner; gameMode = m.mode;
           economy = Object.fromEntries((m.economy || []).map(p => [p.id, p]));
           shipRequests = m.shipRequests || [];
           peaceOffers = m.peaceOffers || [];
           marches = m.marches || [];
-          threats = Object.fromEntries(m.threats || []);
+          threats = Object.fromEntries(m.threats || []); nukeCd = Object.fromEntries(m.nuke || []);
           ceasefires = m.ceasefires || [];
           allies = new Set(m.allies.map(x => x.slice().sort((a, b) => a - b).join(':')));
           stats(m.p); updateControls(); updateEconomicPanel();
@@ -760,6 +769,9 @@
         if (gameMode === 'economic' && gameState === 'playing' && o === me && !structures[y * W + x]) {
           const q = pm[me];
           if (q[6] >= 2500 && (!q[8] || q[10] >= q[8] * 1000)) add('Construir ciutat (2.500 €)', () => send({ t: 'build', i: y * W + x, building: 'city' }));
+          { const ec = economy[me] || {};
+            if (q[8] > 0 && q[6] >= 6000 && (ec.silos || 0) < 3) add('Construir sitja de míssils (6.000 €)', () => send({ t: 'build', i: y * W + x, building: 'silo' }));
+            if (q[8] > 0 && q[6] >= 5000 && (ec.radars || 0) < 3) add('Construir radar antimíssils (5.000 €)', () => send({ t: 'build', i: y * W + x, building: 'radar' })); }
           if (q[8] > 0 && q[9] < 10) {
             if (q[6] >= 4000) add('Construir drassana (4.000 €)', () => send({ t: 'build', i: y * W + x, building: 'shipyard' }));
             if (q[6] >= 3500) add('Construir fàbrica d’armes (3.500 €)', () => send({ t: 'build', i: y * W + x, building: 'armsFactory' }));
@@ -785,6 +797,13 @@
           const label = gameMode === 'economic' ? 'Enviar exèrcit per mar' : 'Enviar vaixell';
           if (isAlly) add(`Trair pacte i ${label.toLowerCase()}`, () => sendExpedition('boat', x, y, true));
           else add(label, () => sendExpedition('boat', x, y));
+        }
+        if (gameState === 'playing' && o > 0 && o !== 255 && o !== me) {
+          const cd = nukeCd[me] || 0, ec = economy[me] || {};
+          const dis = t => { const b = document.createElement('button'); b.textContent = t; b.disabled = true; cm.appendChild(b); };
+          if (cd > 0) dis(`Bomba nuclear en recàrrega (${Math.ceil(cd / 5)} s)`);
+          else if (gameMode === 'economic' && !ec.silos) dis('Bomba nuclear: cal un sitja de míssils');
+          else add(`Llançar bomba nuclear (${gameMode === 'economic' ? '8.000 €' : '50% de tropes'})`, () => { if (confirm('Segur que vols llançar una bomba nuclear?')) send({ t: 'nuke', x, y }); });
         }
       } else if (o === 0) add('Aparèixer aquí', () => send({ t: 'spawn', x, y }));
       cm.style.left = Math.min(e.clientX, innerWidth - 190) + 'px'; cm.style.top = Math.min(e.clientY, innerHeight - 150) + 'px'; cm.style.display = 'block';
@@ -820,7 +839,7 @@
         const buildingSize = Math.max(.8, 2 / zoom);
         for (const [i, type] of structureList) {
           const x = i % W, y = (i / W) | 0;
-          ctx.fillStyle = type === 1 ? '#fbbf24' : type === 2 ? '#22d3ee' : type === 3 ? '#60a5fa' : '#f87171';
+          ctx.fillStyle = type === 1 ? '#fbbf24' : type === 2 ? '#22d3ee' : type === 3 ? '#60a5fa' : type === 5 ? '#e879f9' : type === 6 ? '#4ade80' : '#f87171';
           ctx.fillRect(x - buildingSize / 2, y - buildingSize / 2, buildingSize, buildingSize);
           if (type > 1) {
             ctx.fillStyle = '#475569';
@@ -828,6 +847,22 @@
           }
         }
         for (const b of boats) { ctx.fillStyle = '#fff'; ctx.fillRect(b[0] - 1.5, b[1] - 1.5, 3, 3); ctx.fillStyle = `rgb(${color(b[2], 0)})`; ctx.fillRect(b[0] - 1, b[1] - 1, 2, 2); }
+        const now = performance.now(); blasts = blasts.filter(b => b.until > now);
+        for (const b of blasts) {
+          const age = now - b.t0;
+          if (b.hit) {
+            ctx.fillStyle = 'rgba(130,70,20,.4)';
+            for (let dy = -b.r; dy <= b.r; dy++)for (let dx = -b.r; dx <= b.r; dx++) {
+              if (dx * dx + dy * dy > b.r * b.r) continue;
+              const x = b.x + dx, y = b.y + dy; if (x >= 0 && y >= 0 && x < W && y < H && owner[y * W + x] === 0) ctx.fillRect(x, y, 1, 1);
+            }
+          }
+          if (age < 1200) { ctx.fillStyle = `rgba(255,${200 - age / 8 | 0},60,${1 - age / 1200})`; ctx.beginPath(); ctx.arc(b.x + .5, b.y + .5, b.r * (.4 + age / 1500), 0, 6.283); ctx.fill(); }
+        }
+        for (const m of missiles) {
+          ctx.strokeStyle = 'rgba(255,60,60,.8)'; ctx.lineWidth = Math.max(.3, 1 / zoom); ctx.beginPath(); ctx.arc(m[3] + .5, m[4] + .5, 6, 0, 6.283); ctx.stroke();
+          ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(m[0], m[1], Math.max(1.5, 3 / zoom), 0, 6.283); ctx.fill();
+        }
         for (const march of marches) {
           ctx.fillStyle = march[3] ? '#fbbf24' : `rgb(${color(march[2], 0)})`;
           ctx.beginPath(); ctx.arc(march[0], march[1], Math.max(1.5, 3 / zoom), 0, Math.PI * 2); ctx.fill();

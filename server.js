@@ -1,6 +1,7 @@
 const http = require('http'), fs = require('fs'), path = require('path'), { WebSocketServer } = require('ws');
 const W = 384, H = 192, WATER = 255, NB = 20, TICK = 200, D4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-const STRUCTURE = Object.freeze({ city: 1, shipyard: 3, armsFactory: 4 });
+const STRUCTURE = Object.freeze({ city: 1, shipyard: 3, armsFactory: 4, silo: 5, radar: 6 });
+const NUKE = { radius: 6, contam: 300, silo: 6000, radar: 5000, cost: 8000, intercept: 2000, radarRange: 35, cooldown: 150, classicCooldown: 300, classicTroops: .5, speed: 4 }, WIN_SHARE = .9;
 const STARTING_MONEY = 10000, CIVILIAN_INCOME_RATE = .025, ARMS_FACTORY_RATE = 10, SHIPYARD_INTERVAL = 10;
 const CITY_COST = 2500, SHIPYARD_COST = 4000, ARMS_FACTORY_COST = 3500;
 const SHIP_PRICE = 1500, SOLDIERS_PER_SHIP = 100, PEACE_DURATION = 600, MARCHES_PER_TICK = 2;
@@ -51,16 +52,16 @@ function addPlayer(r, name, team, bot) {
   const p = {
     id: r.players.length, name, team, bot, bal: 100, money: STARTING_MONEY,
     allocation: 35, population: 0, tiles: 0, alive: false, rate: 0,
-    ships: 0, shipProgress: 0, skill: .5 + Math.random() * .5
+    ships: 0, shipProgress: 0, nukeReady: 0, skill: .5 + Math.random() * .5
   };
   r.players.push(p);
-  r.buildings.push({ cities: 0, shipyards: 0, armsFactories: 0 });
+  r.buildings.push({ cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0 });
   r.cityTiles.push(new Set());
   r.territoryTiles.push(new Set());
   return p;
 }
 function reindexRoom(r) {
-  r.buildings = Array.from({ length: r.players.length }, () => ({ cities: 0, shipyards: 0, armsFactories: 0 }));
+  r.buildings = Array.from({ length: r.players.length }, () => ({ cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0 }));
   r.cityTiles = Array.from({ length: r.players.length }, () => new Set());
   r.territoryTiles = Array.from({ length: r.players.length }, () => new Set());
   for (let i = 0; i < r.owner.length; i++) {
@@ -71,7 +72,7 @@ function reindexRoom(r) {
   }
 }
 function buildingCounts(r, id) {
-  return r.buildings[id] || { cities: 0, shipyards: 0, armsFactories: 0 };
+  return r.buildings[id] || { cities: 0, shipyards: 0, armsFactories: 0, silos: 0, radars: 0 };
 }
 function factoryCount(counts) { return counts.shipyards + counts.armsFactories; }
 function combatEfficiency(r, id) {
@@ -104,7 +105,7 @@ function economyStatus(r, p) {
     recruitmentRate: Math.min(counts.armsFactories * ARMS_FACTORY_RATE, Math.max(0, armyCapacity(p) - p.bal)),
     armyCapacity: armyCapacity(p),
     combatEfficiency: combatEfficiency(r, p.id),
-    shipyards: counts.shipyards, armsFactories: counts.armsFactories,
+    shipyards: counts.shipyards, armsFactories: counts.armsFactories, silos: counts.silos, radars: counts.radars,
   };
 }
 function trackBuilding(r, id, i, type, delta) {
@@ -116,6 +117,8 @@ function trackBuilding(r, id, i, type, delta) {
     else r.cityTiles[id].delete(i);
   } else if (type === STRUCTURE.shipyard) counts.shipyards += delta;
   else if (type === STRUCTURE.armsFactory) counts.armsFactories += delta;
+  else if (type === STRUCTURE.silo) counts.silos += delta;
+  else if (type === STRUCTURE.radar) counts.radars += delta;
 }
 function setStructure(r, id, i, type) {
   r.structures[i] = type;
@@ -127,10 +130,11 @@ function buildStructure(r, p, i, type) {
   if (i < 0 || i >= W * H || r.owner[i] !== p.id || r.structures[i]) return false;
   const counts = buildingCounts(r, p.id);
   const structure = STRUCTURE[type];
-  const cost = type === 'city' ? CITY_COST : type === 'shipyard' ? SHIPYARD_COST : type === 'armsFactory' ? ARMS_FACTORY_COST : 0;
+  const cost = type === 'city' ? CITY_COST : type === 'shipyard' ? SHIPYARD_COST : type === 'armsFactory' ? ARMS_FACTORY_COST : type === 'silo' ? NUKE.silo : type === 'radar' ? NUKE.radar : 0;
   if (!cost || p.money < cost) return false;
   if (type === 'city' && counts.cities && p.population < counts.cities * 1000) return false;
-  if (structure !== STRUCTURE.city && (!counts.cities || factoryCount(counts) >= 10)) return false;
+  if (type === 'silo' || type === 'radar') { if (!counts.cities || (type === 'silo' ? counts.silos : counts.radars) >= 3) return false; }
+  else if (structure !== STRUCTURE.city && (!counts.cities || factoryCount(counts) >= 10)) return false;
   p.money -= cost;
   setStructure(r, p.id, i, structure);
   status(r);
@@ -175,7 +179,7 @@ function status(r) {
       player.id, r.players.slice(1).filter(attacker => attacker && attacker.id !== player.id &&
         incomingArmy(r, attacker.id, player.id) > 0).map(attacker => attacker.id)
     ]) : undefined,
-    state: r.state, host: r.host, winner: r.winner, mode: r.mode, allies: [...r.pacts].map(k => k.split(':').map(Number)),
+    nuke: r.players.slice(1).map(q => [q.id, Math.max(0, (q.nukeReady || 0) - r.t)]), state: r.state, host: r.host, winner: r.winner, mode: r.mode, allies: [...r.pacts].map(k => k.split(':').map(Number)),
     ceasefires: [...(r.ceasefires || [])].filter(([, until]) => until > r.t).map(([key, until]) => [...key.split(':').map(Number), until - r.t])
   });
 }
@@ -402,7 +406,7 @@ function runMarches(r) {
 }
 function newRoom(code, mode = 'classic', territory = 'random') {
   const r = {
-    code, owner: loadMap(territory), structures: new Uint8Array(W * H), cityPopulation: new Float32Array(W * H), mode, territory, players: [null], buildings: [null], cityTiles: [null], territoryTiles: [new Set()], attacks: [], boats: [], marches: [], shipRequests: [], shipOffers: [], peaceOffers: [], nextMarketId: 1, ceasefires: new Map(), ch: [], clients: new Set(), land: 0, t: 0,
+    code, owner: loadMap(territory), structures: new Uint8Array(W * H), cityPopulation: new Float32Array(W * H), mode, territory, players: [null], buildings: [null], cityTiles: [null], territoryTiles: [new Set()], attacks: [], boats: [], marches: [], shipRequests: [], shipOffers: [], peaceOffers: [], nextMarketId: 1, ceasefires: new Map(), rad: new Int32Array(W * H), missiles: [], ch: [], clients: new Set(), land: 0, t: 0,
     state: 'lobby', host: 0, winner: 0, pacts: new Set(), pactRequests: new Set()
   };
   for (let i = 0; i < r.owner.length; i++)if (r.owner[i] === 0) { r.land++; r.territoryTiles[0].add(i); }
@@ -536,7 +540,7 @@ function runAttacks(r) {
       if (n-- <= 0) break; at.fr.delete(i); if (O[i] !== at.t) continue;
       const dens = D ? D.bal / Math.max(D.tiles, 1) : 0;
       const defenseEfficiency = D ? combatEfficiency(r, D.id) : 1;
-      const cost = D ? Math.max(.1, dens * 1.17 * defenseEfficiency / attackEfficiency) : 1 / attackEfficiency;
+      const cost = D ? Math.max(.1, dens * 1.17 * defenseEfficiency / attackEfficiency) : (r.rad[i] > r.t ? 25 : 1) / attackEfficiency;
       if (at.troops < cost) {
         at.troops = 0;
         if (D) actionError(r, A, `Atac aturat: l’enemic defensa amb ${dens.toFixed(1)} soldats per territori. Envia més soldats o prova una altra frontera.`);
@@ -551,6 +555,98 @@ function runAttacks(r) {
     if (!A.alive || at.troops < 1 || !at.fr.size) { if (A.alive) A.bal += at.troops; at.done = true; }
   }
   r.attacks = r.attacks.filter(a => !a.done);
+}
+
+function interceptor(r, m, victim) {
+  const tx = m.to % W, ty = (m.to / W) | 0;
+  for (const q of r.players) {
+    if (!q || !q.alive || q.id === m.a || q.money < NUKE.intercept) continue;
+    if (!(q.id === victim || allied(r, q.id, victim) || sameTeam(r, q.id, victim))) continue;
+    if (!buildingCounts(r, q.id).radars) continue;
+    for (const k of r.territoryTiles[q.id]) {
+      if (r.structures[k] === STRUCTURE.radar && (k % W - tx) ** 2 + ((k / W | 0) - ty) ** 2 <= NUKE.radarRange ** 2) return q;
+    }
+  }
+  return null;
+}
+function nukeLaunch(r, p, tx, ty) {
+  if (r.state !== 'playing' || !p.alive || tx < 0 || ty < 0 || tx >= W || ty >= H) return;
+  const i = ty * W + tx, o = r.owner[i], econ = r.mode === 'economic';
+  if (o === WATER || o === 0 || o === p.id) { actionError(r, p, 'Una bomba només es pot llançar contra el territori d’un altre jugador.'); return; }
+  if (sameTeam(r, p.id, o) || (econ && ceasefireActive(r, p.id, o))) { actionError(r, p, 'No pots bombardejar aquest jugador (mateix equip o alt el foc).'); return; }
+  if (r.t < p.nukeReady) { actionError(r, p, `Bomba en recàrrega: ${Math.ceil((p.nukeReady - r.t) / 5)} s.`); return; }
+  let from = -1, best = Infinity;
+  for (const k of r.territoryTiles[p.id]) {
+    if (econ && r.structures[k] !== STRUCTURE.silo) continue;
+    const d = (k % W - tx) ** 2 + ((k / W | 0) - ty) ** 2;
+    if (d < best) { best = d; from = k; }
+  }
+  if (from < 0) { actionError(r, p, econ ? 'Necessites un sitja de míssils.' : 'No tens territori des d’on llançar.'); return; }
+  if (econ) {
+    if (p.money < NUKE.cost) { actionError(r, p, 'Una bomba costa 8.000 €.'); return; }
+    p.money -= NUKE.cost;
+  } else {
+    if (p.bal < 50) { actionError(r, p, 'Necessites almenys 50 soldats per llançar una bomba.'); return; }
+    p.bal -= p.bal * NUKE.classicTroops;
+  }
+  p.nukeReady = r.t + (econ ? NUKE.cooldown : NUKE.classicCooldown);
+  r.missiles.push({ a: p.id, from, to: i, t0: r.t, dur: Math.max(10, Math.ceil(Math.sqrt(best) / NUKE.speed)) });
+  send(r, { t: 'toast', m: `${p.name} ha llançat un míssil contra ${r.players[o].name}!` });
+  status(r);
+}
+function nukeStrike(r, m) {
+  const cx = m.to % W, cy = (m.to / W) | 0, R = NUKE.radius, hit = new Map(), cells = [];
+  for (let dy = -R; dy <= R; dy++)for (let dx = -R; dx <= R; dx++) {
+    if (dx * dx + dy * dy > R * R) continue;
+    const x = cx + dx, y = cy + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue;
+    const i = y * W + x, o = r.owner[i]; if (o === WATER) continue;
+    cells.push(i);
+    if (o && o !== m.a) hit.set(o, (hit.get(o) || 0) + 1);
+  }
+  for (const [o, n] of hit) {
+    const D = r.players[o];
+    D.bal = Math.max(0, D.bal * (1 - Math.min(1, 1.5 * n / Math.max(D.tiles, 1))));
+    if (allied(r, m.a, o)) r.pacts.delete(pair(m.a, o));
+  }
+  for (const i of cells) {
+    const o = r.owner[i]; if (o === m.a) continue;
+    if (o) set(r, i, 0);
+    r.rad[i] = r.t + NUKE.contam;
+  }
+  send(r, { t: 'nuke', x: cx, y: cy, r: R, ms: NUKE.contam * TICK });
+  status(r);
+}
+function runMissiles(r) {
+  r.missiles = r.missiles.filter(m => {
+    if (r.t < m.t0 + m.dur) return true;
+    const victim = r.owner[m.to];
+    if (r.mode === 'economic' && victim && victim !== WATER && victim !== m.a) {
+      const q = interceptor(r, m, victim);
+      if (q) {
+        q.money -= NUKE.intercept;
+        send(r, { t: 'nuke', x: m.to % W, y: (m.to / W) | 0, r: 3, ms: 0, intercepted: true });
+        send(r, { t: 'toast', m: `${q.name} ha interceptat el míssil amb el radar!` });
+        return false;
+      }
+    }
+    nukeStrike(r, m);
+    return false;
+  });
+}
+function botNukeThink(r, b) {
+  if (b.skill < .9 || r.t < 600 || r.t < b.nukeReady || Math.random() > .08) return;
+  const econ = r.mode === 'economic';
+  if (econ && (!buildingCounts(r, b.id).silos || b.money < NUKE.cost + 2000)) return;
+  if (!econ && b.bal < 150) return;
+  let target = null;
+  for (const q of r.players) {
+    if (!q || !q.alive || q.id === b.id || sameTeam(r, b.id, q.id) || allied(r, b.id, q.id) || (econ && ceasefireActive(r, b.id, q.id))) continue;
+    if (!target || q.tiles > target.tiles) target = q;
+  }
+  if (!target) return;
+  const S = r.territoryTiles[target.id]; let k = Math.random() * S.size | 0, pick = -1;
+  for (const i of S) { if (k-- <= 0) { pick = i; break; } }
+  if (pick >= 0) nukeLaunch(r, b, pick % W, (pick / W) | 0);
 }
 function botThink(r, b) {
   const O = r.owner, P = r.players, neu = [], en = [];
@@ -579,7 +675,9 @@ function botEconomicThink(r, b) {
   b.allocation = desiredAllocation;
   b.bal = Math.min(b.bal, armyCapacity(b));
   let building = null;
+  if (b.skill >= .9 && counts.silos && b.money < NUKE.cost + 1000) return;
   if (counts.cities && b.population >= counts.cities * 1000 && b.money >= CITY_COST) building = 'city';
+  else if (b.skill >= .9 && counts.cities && !counts.silos && factoryCount(counts) >= 1) { if (b.money >= NUKE.silo) building = 'silo'; }
   else if (factoryCount(counts) < 10 && b.money >= Math.min(SHIPYARD_COST, ARMS_FACTORY_COST)) {
     if (!counts.armsFactories) building = 'armsFactory';
     else if (!counts.shipyards) building = 'shipyard';
@@ -760,14 +858,15 @@ function tick(r) {
       for (const p of r.players) if (p && p.bot && p.alive) botMarketThink(r, p);
       runMarches(r);
     }
-    runAttacks(r); runBoats(r);
+    runAttacks(r); runBoats(r); runMissiles(r);
     for (const p of r.players) if (p && p.alive && p.tiles === 0) {
       p.alive = false;
       p.bal = 0;
       cleanupPlayerState(r, p.id);
     }
     const alive = r.players.slice(1).filter(p => p.alive);
-    if (alive.length <= 1) { r.state = 'over'; r.winner = alive.length ? alive[0].id : 0; r.attacks = []; r.boats = []; }
+    const dominant = alive.find(q => q.tiles >= r.land * WIN_SHARE);
+    if (alive.length <= 1 || dominant) { r.state = 'over'; r.winner = dominant ? dominant.id : (alive.length ? alive[0].id : 0); r.attacks = []; r.boats = []; r.missiles = []; }
     if (r.t % 5 === 0) {
       for (const p of r.players) {
         if (!p || !p.alive) continue;
@@ -781,6 +880,7 @@ function tick(r) {
         if (p.bot) {
           if (r.mode === 'economic') botEconomicThink(r, p);
           if (Math.random() < .4 + .5 * p.skill) botThink(r, p);
+          botNukeThink(r, p);
         }
       }
       status(r);
@@ -796,6 +896,10 @@ function tick(r) {
         return [from % W + ((to % W) - (from % W)) * fraction, (from / W | 0) + (((to / W | 0) - (from / W | 0)) * fraction), b.a];
       })
     });
+  }
+  if (r.missiles.length || r.hadMissiles) {
+    r.hadMissiles = r.missiles.length > 0;
+    send(r, { t: 'mi', m: r.missiles.map(m => { const f = Math.min(1, (r.t - m.t0) / m.dur), a = m.from, b = m.to, ax = a % W, ay = (a / W) | 0, bx = b % W, by = (b / W) | 0; return [ax + (bx - ax) * f, ay + (by - ay) * f, m.a, bx, by]; }) });
   }
   if (r.ch.length) { send(r, { t: 'd', c: r.ch }); r.ch = []; }
 }
@@ -849,11 +953,11 @@ wss.on('connection', ws => {
     } else if (r && d.t === 'peaceReply' && r.mode === 'economic' && r.state === 'playing') {
       acceptPeaceOffer(r, p, d.offer, !!d.accept);
     } else if (r && d.t === 'restart' && p.id === r.host && r.state === 'over') {
-      r.owner = loadMap(r.territory); r.structures = new Uint8Array(W * H); r.cityPopulation = new Float32Array(W * H); r.attacks = []; r.boats = []; r.marches = []; r.shipRequests = []; r.shipOffers = []; r.peaceOffers = []; r.ceasefires.clear(); r.ch = []; r.t = 0; r.winner = 0; r.state = 'lobby'; r.pacts.clear(); r.pactRequests.clear();
+      r.owner = loadMap(r.territory); r.structures = new Uint8Array(W * H); r.cityPopulation = new Float32Array(W * H); r.attacks = []; r.boats = []; r.marches = []; r.missiles = []; r.rad.fill(0); r.shipRequests = []; r.shipOffers = []; r.peaceOffers = []; r.ceasefires.clear(); r.ch = []; r.t = 0; r.winner = 0; r.state = 'lobby'; r.pacts.clear(); r.pactRequests.clear();
       for (const player of r.players.slice(1)) {
         player.tiles = 0; player.alive = false; player.bal = 100; player.money = STARTING_MONEY;
         player.allocation = 35; player.population = 0; player.rate = 0;
-        player.ships = 0; player.shipProgress = 0;
+        player.ships = 0; player.shipProgress = 0; player.nukeReady = 0;
       }
       r.land = 0; for (const v of r.owner) if (v === 0) r.land++;
       reindexRoom(r);
@@ -863,6 +967,7 @@ wss.on('connection', ws => {
       r.ch = []; send(r, { t: 'reset', owner: Buffer.from(r.owner).toString('base64'), structures: Buffer.from(r.structures).toString('base64') }); status(r);
     } else if (r && d.t === 'atk') attack(r, p, d.x | 0, d.y | 0, +d.pct || .3, !!d.betray, { mode: d.expeditionMode, amount: d.amount });
     else if (r && d.t === 'boat') boat(r, p, d.x | 0, d.y | 0, +d.pct || .3, !!d.betray, { mode: d.expeditionMode, amount: d.amount });
+    else if (r && d.t === 'nuke') nukeLaunch(r, p, d.x | 0, d.y | 0);
     else if (r && d.t === 'pact' && r.state === 'playing') {
       const o = r.players[d.to | 0], key = `${p.id}:${d.to | 0}`;
       if (o && !o.bot && o !== p && o.alive && p.alive && !allied(r, p.id, o.id)) {
@@ -903,5 +1008,5 @@ module.exports = {
   W, H, WATER, STRUCTURE, STARTING_MONEY, CIVILIAN_INCOME_RATE, SHIP_PRICE, PEACE_DURATION, addPlayer, spawn, buildingCounts,
   armyCapacity, populationGrowthRate, economicWorkforce, economyStatus, combatEfficiency, buildStructure, processEconomicPlayer,
   createShipRequest, createShipOffer, acceptShipOffer, orderMarch, findMarchPath, runMarches,
-  runAttacks, proposePeace, acceptPeaceOffer, incomingArmy, botMarketThink, attack, boat
+  runAttacks, nukeLaunch, runMissiles, NUKE, proposePeace, acceptPeaceOffer, incomingArmy, botMarketThink, attack, boat
 };
