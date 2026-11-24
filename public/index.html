@@ -69,6 +69,10 @@
       font-size: 12px
     }
 
+    .rank-hidden #rank {
+      display: none
+    }
+
     .economic #rank {
       left: 8px;
       right: auto;
@@ -110,6 +114,60 @@
       background: #000b;
       padding: 6px 8px;
       border-radius: 6px
+    }
+
+    #stance-toolbar {
+      position: fixed;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: calc(100vw - 16px);
+      padding: 6px 8px;
+      border: 1px solid #ffffff24;
+      border-radius: 10px;
+      background: #000c;
+      box-shadow: 0 8px 24px #0006;
+      z-index: 4
+    }
+
+    #stance-btns {
+      display: flex;
+      gap: 6px
+    }
+
+    #stance-btns button {
+      min-width: 108px;
+      min-height: 44px;
+      padding: 10px 14px;
+      font-size: 15px;
+      font-weight: 600
+    }
+
+    #stance-toolbar.collapsed .stance-label,
+    #stance-toolbar.collapsed #stance-btns {
+      display: none
+    }
+
+    #stance-toggle {
+      min-width: 34px;
+      padding: 6px 10px;
+      background: #2a3b55;
+      font-size: 18px
+    }
+
+    @media (max-width: 600px) {
+      #stance-btns button {
+        min-width: 0;
+        padding: 8px 10px;
+        font-size: 13px
+      }
+
+      #stance-toolbar:not(.collapsed) .stance-label {
+        display: none
+      }
     }
 
     #econ-panel {
@@ -378,8 +436,18 @@
       <input id="pct" type="range" min="1" max="100" value="35">
       <span id="pl">35%</span>
     </span>
+    <button id="rank-toggle" type="button" aria-controls="rank" aria-expanded="true">Amagar classificació</button>
     <button id="start" style="display:none">Començar Partida</button>
     <button id="restart" style="display:none">Reiniciar Partida</button>
+  </div>
+  <div id="stance-toolbar" role="group" aria-label="Postures d’exèrcit" style="display:none">
+    <span class="stance-label">Postures</span>
+    <div id="stance-btns">
+      <button type="button" data-stance="eco">Economia</button>
+      <button type="button" data-stance="bal">Equilibrat</button>
+      <button type="button" data-stance="mob">Mobilització</button>
+    </div>
+    <button id="stance-toggle" type="button" aria-expanded="true" aria-label="Reduir barra" title="Reduir barra">−</button>
   </div>
   <aside id="econ-panel" aria-label="Gestió econòmica">
     <header id="econ-header">
@@ -392,11 +460,6 @@
     <div id="econ-content">
     <section class="econ-section">
       <h3 class="econ-title">Població i exèrcit <span class="econ-info" tabindex="0" title="Els habitants civils generen ingressos i fabriquen vaixells. El percentatge militar determina la capacitat de soldats." aria-label="Informació de població i exèrcit">i</span></h3>
-      <div class="econ-row" id="stance-btns">
-        <button type="button" data-stance="eco">Economia</button>
-        <button type="button" data-stance="bal">Equilibrat</button>
-        <button type="button" data-stance="mob">Mobilització</button>
-      </div>
       <div id="econ-workers" class="muted" title="La densitat defensiva és el nombre de soldats per territori: com més baixa, més fàcil és que t’envaeixin."></div>
     </section>
     <section class="econ-section">
@@ -544,6 +607,7 @@
       $('pct-wrap').style.display = gameMode === 'economic' ? 'none' : 'inline';
       if (gameMode === 'classic') $('pct-wrap').style.display = 'none';
       $('econ-panel').style.display = gameMode === 'economic' ? 'block' : 'none';
+      $('stance-toolbar').style.display = gameMode === 'economic' && alive() ? 'flex' : 'none';
       document.body.classList.toggle('economic', gameMode === 'economic');
       $('mode').disabled = !!$('room').value;
       $('territory').disabled = !!$('room').value;
@@ -744,6 +808,18 @@
     });
     $('start').onclick = () => send({ t: 'start' });
     $('restart').onclick = () => send({ t: 'restart' });
+    $('rank-toggle').onclick = () => {
+      const hidden = document.body.classList.toggle('rank-hidden');
+      $('rank-toggle').textContent = hidden ? 'Mostrar classificació' : 'Amagar classificació';
+      $('rank-toggle').setAttribute('aria-expanded', String(!hidden));
+    };
+    $('stance-toggle').onclick = () => {
+      const collapsed = $('stance-toolbar').classList.toggle('collapsed');
+      $('stance-toggle').textContent = collapsed ? '+' : '−';
+      $('stance-toggle').title = collapsed ? 'Ampliar barra' : 'Reduir barra';
+      $('stance-toggle').setAttribute('aria-label', $('stance-toggle').title);
+      $('stance-toggle').setAttribute('aria-expanded', String(!collapsed));
+    };
     $('pct').oninput = () => $('pl').textContent = $('pct').value + '%';
     $('stance-btns').onclick = e => {
       const stance = e.target.dataset.stance;
