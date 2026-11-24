@@ -952,7 +952,7 @@ wss.on('connection', ws => {
     } else if (r && d.t === 'spawn' && !p.alive) spawn(r, p, d.x | 0, d.y | 0);
     else if (r && d.t === 'start' && p.id === r.host && r.state === 'lobby') { r.state = 'playing'; r.t = 0; status(r); }
     else if (r && d.t === 'allocate' && r.mode === 'economic' && p.alive) {
-      if (r.stances[d.stance] === undefined) return;
+      if (!Object.hasOwn(r.stances, d.stance)) return;
       p.allocation = r.stances[d.stance];
       p.bal = Math.min(p.bal, armyCapacity(p));
       status(r);
