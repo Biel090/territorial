@@ -358,6 +358,14 @@
       <option value="asia_pacific">Àsia i Oceania</option>
       <option value="world">Món sencer</option>
     </select>
+    <details id="hub-cfg" style="display:none;background:#ffffff12;padding:8px 12px;border-radius:6px">
+      <summary style="cursor:pointer">⚙️ Postures (% soldats)</summary>
+      <div style="display:grid;grid-template-columns:auto 65px;gap:6px;margin-top:8px;align-items:center">
+        <label for="cfg-eco">Economia</label><input id="cfg-eco" type="number" min="0" max="100" value="20">
+        <label for="cfg-bal">Equilibrat</label><input id="cfg-bal" type="number" min="0" max="100" value="45">
+        <label for="cfg-mob">Mobilització</label><input id="cfg-mob" type="number" min="0" max="100" value="75">
+      </div>
+    </details>
     <button id="go">Entrar</button>
   </div>
   <div class="h" id="top"></div>
@@ -384,10 +392,10 @@
     <div id="econ-content">
     <section class="econ-section">
       <h3 class="econ-title">Població i exèrcit <span class="econ-info" tabindex="0" title="Els habitants civils generen ingressos i fabriquen vaixells. El percentatge militar determina la capacitat de soldats." aria-label="Informació de població i exèrcit">i</span></h3>
-      <div class="econ-row">
-        <label id="allocation-wrap" for="allocation" title="Percentatge d’habitants assignat a l’exèrcit">Soldats</label>
-        <input id="allocation" type="range" min="0" max="100" step="1" value="35">
-        <span id="allocation-label">35%</span>
+      <div class="econ-row" id="stance-btns">
+        <button type="button" data-stance="eco">Economia</button>
+        <button type="button" data-stance="bal">Equilibrat</button>
+        <button type="button" data-stance="mob">Mobilització</button>
       </div>
       <div id="econ-workers" class="muted" title="La densitat defensiva és el nombre de soldats per territori: com més baixa, més fàcil és que t’envaeixin."></div>
     </section>
@@ -443,7 +451,7 @@
   <div id="card"></div>
   <script>
     const $ = id => document.getElementById(id);
-    let ws, W, H, NB, me, owner, structures, structureList = [], gameMode = 'classic', off, octx, img, land = 1, zoom = 3, ox = 0, oy = 0, dirty = false, pm = {}, economy = {}, shipRequests = [], peaceOffers = [], marches = [], threats = {}, ceasefires = [], boats = [], gameState = 'lobby', host = 0, winner = 0, allies = new Set();
+    let ws, W, H, NB, me, owner, structures, structureList = [], gameMode = 'classic', off, octx, img, land = 1, zoom = 3, ox = 0, oy = 0, dirty = false, pm = {}, economy = {}, shipRequests = [], peaceOffers = [], marches = [], threats = {}, ceasefires = [], boats = [], gameState = 'lobby', host = 0, winner = 0, allies = new Set(), stances = { eco: 20, bal: 45, mob: 75 };
     const cv = $('c'), ctx = cv.getContext('2d');
     let missiles = [], blasts = [], nukeCd = {};
     function toast(m) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = 'none', 4000); }
@@ -453,10 +461,14 @@
     function color(id, i) { if (id === 255) return [14, 40, 72]; if (!id) return (i / W | 0) < H * .1 ? [205, 215, 222] : [62, 98, 66]; if (id <= NB) return hsl(id * 47 % 360); return id === me ? [59, 130, 246] : [34, 211, 238] }
     function paint(i) { const c = color(owner[i], i), d = img.data; d[4 * i] = c[0]; d[4 * i + 1] = c[1]; d[4 * i + 2] = c[2]; d[4 * i + 3] = 255; }
     $('name').value = localStorage.nom || '';
-    $('room').oninput = () => {
-      $('mode').disabled = !!$('room').value;
-      $('territory').disabled = !!$('room').value;
+    const toggleHubCfg = () => {
+      const hasRoom = !!$('room').value;
+      $('mode').disabled = hasRoom;
+      $('territory').disabled = hasRoom;
+      $('hub-cfg').style.display = !hasRoom && $('mode').value === 'economic' ? 'block' : 'none';
     };
+    $('room').oninput = toggleHubCfg;
+    $('mode').onchange = toggleHubCfg;
     $('go').onclick = () => {
       localStorage.nom = $('name').value;
       ws = new WebSocket((location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host);
@@ -465,7 +477,8 @@
         name: $('name').value || 'Jugador',
         room: $('room').value,
         mode: $('mode').value,
-        territory: $('territory').value
+        territory: $('territory').value,
+        stances: { eco: +$('cfg-eco').value, bal: +$('cfg-bal').value, mob: +$('cfg-mob').value }
       }));
       ws.onmessage = e => {
         const m = JSON.parse(e.data);
@@ -474,6 +487,7 @@
         }
         else if (m.t === 'init') {
           W = m.w; H = m.h; NB = m.nb; me = m.me; land = m.land; gameState = m.state; host = m.host; gameMode = m.mode;
+          if (m.stances) stances = m.stances;
           owner = Uint8Array.from(atob(m.owner), c => c.charCodeAt(0));
           structures = Uint8Array.from(atob(m.structures), c => c.charCodeAt(0)); rebuildStructureList();
           off = document.createElement('canvas'); off.width = W; off.height = H; octx = off.getContext('2d'); img = octx.createImageData(W, H);
@@ -505,7 +519,8 @@
           threats = Object.fromEntries(m.threats || []); nukeCd = Object.fromEntries(m.nuke || []);
           ceasefires = m.ceasefires || [];
           allies = new Set(m.allies.map(x => x.slice().sort((a, b) => a - b).join(':')));
-          stats(m.p); updateControls(); updateEconomicPanel();
+          stats(m.p);
+          updateControls(); updateEconomicPanel();
         }
         else if (m.t === 'peaceOffer') {
           const accept = confirm(`${m.name} ofereix ${m.amount.toLocaleString('ca-ES')} € per aturar l’atac durant 120 segons. Acceptes?`);
@@ -540,11 +555,6 @@
         ? `Soldats: ${q[3]} · Habitants: ${q[10]} · Euros: ${Math.floor(q[6]).toLocaleString('ca-ES')} · Ciutats: ${q[8]}`
         : `Tropes: ${q[3]} · Interès: ${(q[5] * 100).toFixed(1)}% · Terra: ${(q[2] / land * 100).toFixed(1)}%`
         : 'Encara no has aparegut';
-      if (q && gameMode === 'economic') {
-        const allocation = document.activeElement === $('allocation') ? $('allocation').value : q[7];
-        $('allocation').value = allocation;
-        $('allocation-label').textContent = `${allocation}%`;
-      }
       $('hint').textContent = q && q[4]
         ? gameMode === 'economic'
           ? 'Fes clic a terra lliure per expandir o a un enemic per atacar la frontera · clic dret per construir'
@@ -570,8 +580,7 @@
     function updateEconomicPanel() {
       if (gameMode !== 'economic' || !economy[me]) return;
       const q = pm[me], e = economy[me];
-      if (document.activeElement !== $('allocation')) $('allocation').value = q[7];
-      $('allocation-label').textContent = `${q[7]}%`;
+      updateStanceBtns(q[7]);
       $('econ-summary').textContent = `${Math.floor(q[10])} habitants · ${Math.floor(e.money).toLocaleString('ca-ES')} €`;
       const defenseDensity = q[3] / Math.max(q[2], 1);
       $('econ-workers').textContent = `${Math.floor(q[12])} civils treballen · ${Math.floor(q[3])} soldats · ${defenseDensity.toFixed(1)} soldats/territori`;
@@ -597,6 +606,13 @@
       $('inventory-info').title = `Ingressos totals: ${e.incomeRate.toFixed(1)} €/s, incloent ${e.staffedBanks} bancs actius de ${e.banks}. Cada banc requereix 100 civils i genera 25 €/s. Cada fàbrica d’armes augmenta un 10% l’eficàcia d’atac i defensa (màxim +100%). Drassanes: ${e.shipyards} · fàbriques d’armes: ${e.armsFactories}.`;
       renderShipRequests();
       renderPeace();
+    }
+    function updateStanceBtns(alloc) {
+      document.querySelectorAll('#stance-btns button').forEach(button => {
+        const active = stances[button.dataset.stance] === alloc;
+        button.style.background = active ? '#22c55e' : '#2a3b55';
+        button.title = `${stances[button.dataset.stance]}% soldats / ${100 - stances[button.dataset.stance]}% civils`;
+      });
     }
     function renderShipRequests() {
       const root = $('econ-requests'); root.textContent = '';
@@ -729,8 +745,10 @@
     $('start').onclick = () => send({ t: 'start' });
     $('restart').onclick = () => send({ t: 'restart' });
     $('pct').oninput = () => $('pl').textContent = $('pct').value + '%';
-    $('allocation').oninput = () => $('allocation-label').textContent = `${$('allocation').value}%`;
-    $('allocation').onchange = () => send({ t: 'allocate', value: $('allocation').value });
+    $('stance-btns').onclick = e => {
+      const stance = e.target.dataset.stance;
+      if (stance) send({ t: 'allocate', stance });
+    };
     $('expedition-mode').onchange = () => {
       const exact = $('expedition-mode').value === 'exact';
       $('expedition-percent-row').style.display = exact ? 'none' : 'flex';

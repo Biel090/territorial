@@ -4,10 +4,11 @@ const game = require('../server');
 
 function makeRoom(mode = 'economic') {
   return {
-    mode, state: 'playing', host: 0, winner: 0, land: 0, t: 0,
+    mode, state: 'playing', host: 0, winner: 0, land: 0, t: 0, stances: { eco: 20, bal: 45, mob: 75 },
     players: [null], buildings: [null], cityTiles: [null], territoryTiles: [new Set()],
     owner: new Uint8Array(game.W * game.H).fill(0),
     structures: new Uint8Array(game.W * game.H),
+    rad: new Int32Array(game.W * game.H),
     cityPopulation: new Float32Array(game.W * game.H),
     attacks: [], boats: [], marches: [], shipRequests: [], shipOffers: [], peaceOffers: [],
     nextMarketId: 1, ceasefires: new Map(), ch: [], clients: new Set(), pacts: new Set(), pactRequests: new Set()

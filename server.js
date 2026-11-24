@@ -19,6 +19,9 @@ const page = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
 const server = http.createServer((q, r) => { r.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); r.end(page) });
 const wss = new WebSocketServer({ server }), rooms = {};
 
+const DEFAULT_STANCES = { eco: 20, bal: 45, mob: 75 };
+const clampPct = (v, def) => Number.isFinite(+v) ? Math.max(0, Math.min(100, Math.round(+v))) : def;
+
 function genMap(seed) {
   let s = seed; const R = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
   const N = 19, g = Array.from({ length: N * N }, R), m = new Uint8Array(W * H);
@@ -171,7 +174,7 @@ function status(r) {
     t: 's', p: r.players.slice(1).map(p => {
       const counts = buildingCounts(r, p.id);
       return [p.id, p.name, p.tiles, Math.floor(p.bal), p.alive, p.rate, Math.floor(p.money), p.allocation, counts.cities,
-        factoryCount(counts), Math.floor(p.population), 1, Math.floor(p.population * (100 - p.allocation) / 100)];
+      factoryCount(counts), Math.floor(p.population), 1, Math.floor(p.population * (100 - p.allocation) / 100)];
     }),
     economy: r.mode === 'economic' ? r.players.slice(1).map(p => economyStatus(r, p)) : undefined,
     shipRequests: r.mode === 'economic' ? shipRequests : undefined,
@@ -226,7 +229,7 @@ function spawn(r, p, x, y) {
   p.alive = true; p.bal = 100;
   if (r.mode === 'economic') {
     p.population = 600;
-    p.allocation = p.bot ? 40 + Math.round(p.skill * 25) : 35;
+    p.allocation = p.bot ? 40 + Math.round(p.skill * 25) : r.stances.bal;
     p.money = STARTING_MONEY;
     const city = y * W + x;
     setStructure(r, p.id, city, 1);
@@ -356,7 +359,7 @@ function runMarches(r) {
     if (!p || !p.alive) return false;
     const currentOwner = r.owner[march.target];
     if (currentOwner === march.a || currentOwner === WATER || (currentOwner && allied(r, march.a, currentOwner)) ||
-        (currentOwner && (sameTeam(r, march.a, currentOwner) || ceasefireActive(r, march.a, currentOwner)))) {
+      (currentOwner && (sameTeam(r, march.a, currentOwner) || ceasefireActive(r, march.a, currentOwner)))) {
       p.bal += march.troops;
       return false;
     }
@@ -401,7 +404,7 @@ function runMarches(r) {
       return false;
     }
     if (!targetOwner || targetOwner === WATER || targetOwner === p.id ||
-        allied(r, p.id, targetOwner) || sameTeam(r, p.id, targetOwner) || ceasefireActive(r, p.id, targetOwner)) {
+      allied(r, p.id, targetOwner) || sameTeam(r, p.id, targetOwner) || ceasefireActive(r, p.id, targetOwner)) {
       p.bal += march.troops;
       return false;
     }
@@ -409,9 +412,15 @@ function runMarches(r) {
     return false;
   });
 }
-function newRoom(code, mode = 'classic', territory = 'random') {
+function newRoom(code, mode = 'classic', territory = 'random', stances = null) {
   const r = {
-    code, owner: loadMap(territory), structures: new Uint8Array(W * H), cityPopulation: new Float32Array(W * H), mode, territory, players: [null], buildings: [null], cityTiles: [null], territoryTiles: [new Set()], attacks: [], boats: [], marches: [], shipRequests: [], shipOffers: [], peaceOffers: [], nextMarketId: 1, ceasefires: new Map(), rad: new Int32Array(W * H), missiles: [], ch: [], clients: new Set(), land: 0, t: 0,
+    code, owner: loadMap(territory), structures: new Uint8Array(W * H), cityPopulation: new Float32Array(W * H), mode, territory,
+    stances: {
+      eco: clampPct(stances?.eco, DEFAULT_STANCES.eco),
+      bal: clampPct(stances?.bal, DEFAULT_STANCES.bal),
+      mob: clampPct(stances?.mob, DEFAULT_STANCES.mob)
+    },
+    players: [null], buildings: [null], cityTiles: [null], territoryTiles: [new Set()], attacks: [], boats: [], marches: [], shipRequests: [], shipOffers: [], peaceOffers: [], nextMarketId: 1, ceasefires: new Map(), rad: new Int32Array(W * H), missiles: [], ch: [], clients: new Set(), land: 0, t: 0,
     state: 'lobby', host: 0, winner: 0, pacts: new Set(), pactRequests: new Set()
   };
   for (let i = 0; i < r.owner.length; i++)if (r.owner[i] === 0) { r.land++; r.territoryTiles[0].add(i); }
@@ -733,8 +742,8 @@ function createShipOffer(r, seller, requestId, quantityValue, priceValue) {
   const request = r.shipRequests.find(item => item.id === Number(requestId) && item.remaining > 0 && item.expiresAt > r.t);
   const quantity = validQuantity(quantityValue), price = validQuantity(priceValue);
   if (!seller.alive || !request || !r.players[request.buyer].alive || request.buyer === seller.id || !quantity || !price ||
-      price > request.maxPrice || quantity > request.remaining ||
-      quantity > seller.ships - reservedShips(r, seller.id)) {
+    price > request.maxPrice || quantity > request.remaining ||
+    quantity > seller.ships - reservedShips(r, seller.id)) {
     return actionError(r, seller, 'Oferta no vàlida: comprova la demanda, el preu i els vaixells disponibles.');
   }
   if (r.shipOffers.some(offer => offer.request === request.id && offer.seller === seller.id && offer.remaining > 0)) {
@@ -750,8 +759,8 @@ function acceptShipOffer(r, buyer, offerId, quantityValue) {
   const quantity = validQuantity(quantityValue);
   const total = offer ? offer.price * quantity : 0;
   if (!offer || !request || request.buyer !== buyer.id || !buyer.alive || !seller || !seller.alive ||
-      !quantity || quantity > offer.remaining || quantity > request.remaining ||
-      offer.price > request.maxPrice || !Number.isSafeInteger(total) || buyer.money < total || seller.ships < quantity) {
+    !quantity || quantity > offer.remaining || quantity > request.remaining ||
+    offer.price > request.maxPrice || !Number.isSafeInteger(total) || buyer.money < total || seller.ships < quantity) {
     return actionError(r, buyer, 'No es pot acceptar aquesta oferta: revisa la demanda, el saldo i l’estoc.');
   }
   buyer.money -= total;
@@ -796,7 +805,7 @@ function acceptPeaceOffer(r, responder, offerId, accept) {
   if (index < 0) return actionError(r, responder, 'Aquesta proposta de pau ja no és activa.');
   const offer = r.peaceOffers[index], payer = r.players[offer.from];
   if (!accept || !payer || !payer.alive || !responder.alive || payer.money < offer.amount ||
-      incomingArmy(r, responder.id, payer.id) <= 0) {
+    incomingArmy(r, responder.id, payer.id) <= 0) {
     r.peaceOffers.splice(index, 1);
     if (payer) sendPlayer(r, payer.id, { t: 'peaceResult', accepted: false, name: responder.name });
     status(r);
@@ -814,7 +823,7 @@ function acceptPeaceOffer(r, responder, offerId, accept) {
 function proposePeace(r, payer, attackerId, amountValue) {
   const attacker = r.players[attackerId], amount = validQuantity(amountValue);
   if (!payer.alive || !attacker || attacker === payer || !attacker.alive || !amount ||
-      payer.money < amount || incomingArmy(r, attacker.id, payer.id) <= 0) {
+    payer.money < amount || incomingArmy(r, attacker.id, payer.id) <= 0) {
     return actionError(r, payer, 'No pots proposar pau: cal una oferta vàlida i un atac en curs.');
   }
   const offer = { id: r.nextMarketId++, from: payer.id, to: attacker.id, amount, expiresAt: r.t + 300 };
@@ -834,8 +843,10 @@ function botMarketThink(r, bot) {
     const available = Math.floor(bot.ships - reservedShips(r, bot.id));
     const price = SHIP_PRICE;
     if (available > 0 && request.maxPrice >= price) {
-      r.shipOffers.push({ id: r.nextMarketId++, request: request.id, seller: bot.id,
-        remaining: Math.min(available, request.remaining), price, expiresAt: request.expiresAt });
+      r.shipOffers.push({
+        id: r.nextMarketId++, request: request.id, seller: bot.id,
+        remaining: Math.min(available, request.remaining), price, expiresAt: request.expiresAt
+      });
     }
   }
 }
@@ -925,7 +936,7 @@ wss.on('connection', ws => {
           newCode = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random() * 24 | 0]).join('');
         } while (rooms[newCode]);
         const territory = Object.hasOwn(regions, d.territory) || d.territory === 'random' ? d.territory : 'random';
-        room = newRoom(newCode, d.mode === 'economic' ? 'economic' : 'classic', territory);
+        room = newRoom(newCode, d.mode === 'economic' ? 'economic' : 'classic', territory, d.stances);
       }
       if (room.clients.size >= 4) return ws.send(JSON.stringify({ t: 'err', m: 'Sala plena' }));
       if (room.state !== 'lobby') return ws.send(JSON.stringify({ t: 'err', m: 'La partida ja ha començat' }));
@@ -934,13 +945,15 @@ wss.on('connection', ws => {
       if (!r.host) r.host = p.id;
       ws.send(JSON.stringify({
         t: 'init', code: r.code, w: W, h: H, nb: NB, me: p.id, land: r.land, owner: Buffer.from(r.owner).toString('base64'),
-        structures: Buffer.from(r.structures).toString('base64'), state: r.state, host: r.host, mode: r.mode, territory: r.territory
+        structures: Buffer.from(r.structures).toString('base64'), state: r.state, host: r.host, mode: r.mode, territory: r.territory,
+        stances: r.stances
       }));
       status(r);
     } else if (r && d.t === 'spawn' && !p.alive) spawn(r, p, d.x | 0, d.y | 0);
     else if (r && d.t === 'start' && p.id === r.host && r.state === 'lobby') { r.state = 'playing'; r.t = 0; status(r); }
     else if (r && d.t === 'allocate' && r.mode === 'economic' && p.alive) {
-      p.allocation = Math.min(100, Math.max(0, Number(d.value) || 0));
+      if (r.stances[d.stance] === undefined) return;
+      p.allocation = r.stances[d.stance];
       p.bal = Math.min(p.bal, armyCapacity(p));
       status(r);
     } else if (r && d.t === 'build' && r.mode === 'economic' && r.state === 'playing' && p.alive) {
@@ -1014,6 +1027,6 @@ if (require.main === module) {
 module.exports = {
   W, H, WATER, STRUCTURE, STARTING_MONEY, CIVILIAN_INCOME_RATE, SHIP_PRICE, PEACE_DURATION, addPlayer, spawn, buildingCounts,
   armyCapacity, populationGrowthRate, economicWorkforce, economyStatus, combatEfficiency, buildStructure, processEconomicPlayer,
-  createShipRequest, createShipOffer, acceptShipOffer, orderMarch, findMarchPath, runMarches,
+  createShipRequest, createShipOffer, acceptShipOffer, orderMarch, findMarchPath, runMarches, newRoom,
   runAttacks, nukeLaunch, runMissiles, NUKE, proposePeace, acceptPeaceOffer, incomingArmy, botMarketThink, botEconomicThink, attack, boat
 };
