@@ -607,7 +607,8 @@
       $('pct-wrap').style.display = gameMode === 'economic' ? 'none' : 'inline';
       if (gameMode === 'classic') $('pct-wrap').style.display = 'none';
       $('econ-panel').style.display = gameMode === 'economic' ? 'block' : 'none';
-      $('stance-toolbar').style.display = gameMode === 'economic' && alive() ? 'flex' : 'none';
+      $('stance-toolbar').style.display = gameMode === 'economic' && gameState === 'playing' ? 'flex' : 'none';
+      document.querySelectorAll('#stance-btns button').forEach(button => { button.disabled = !alive(); });
       document.body.classList.toggle('economic', gameMode === 'economic');
       $('mode').disabled = !!$('room').value;
       $('territory').disabled = !!$('room').value;
@@ -673,7 +674,7 @@
     }
     function updateStanceBtns(alloc) {
       document.querySelectorAll('#stance-btns button').forEach(button => {
-        const active = stances[button.dataset.stance] === alloc;
+        const active = stances[button.dataset.stance] === alloc || (!alive() && button.dataset.stance === 'bal');
         button.style.background = active ? '#22c55e' : '#2a3b55';
         button.title = `${stances[button.dataset.stance]}% soldats / ${100 - stances[button.dataset.stance]}% civils`;
       });
